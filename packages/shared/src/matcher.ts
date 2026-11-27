@@ -73,12 +73,29 @@ function normalizeMultilingualNumbers(input: string): string {
 
 export function fuzzyMatchSkus(query: string, preset?: StorePreset, limit = 5): SeedSku[] {
   const catalog = preset ? getCatalogForPreset(preset) : STARTER_CATALOG;
+  const normalizedQuery = transliterateIndicToLatin(query);
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  // Exact alias match first so multi-word items like "chana dal" never get beaten by short partial fuzzy matches
+  const exactMatches = catalog.filter(
+    (sku) =>
+      sku.canonicalName.toLowerCase() === normalizedQuery ||
+      sku.aliases.some((alias) => alias.toLowerCase() === normalizedQuery)
+  );
+  if (exactMatches.length > 0) {
+    return exactMatches.slice(0, limit);
+  }
+
   const fuse = new Fuse(catalog, {
-    keys: ["canonicalName", "aliases"],
-    threshold: 0.45,
+    keys: ["aliases", "canonicalName"],
+    threshold: 0.28,
+    ignoreLocation: true,
+    minMatchCharLength: 3,
     includeScore: true
   });
-  return fuse.search(transliterateIndicToLatin(query), { limit }).map((r) => r.item);
+  return fuse.search(normalizedQuery, { limit }).map((r) => r.item);
 }
 
 export function fuzzyMatchCustomers(query: string, limit = 5): SeedCustomer[] {
@@ -162,8 +179,11 @@ export function parseSandboxUtterance(
     };
   }
 
-  // 2. Detect petty-cash expense ("chhota kharcha")
-  if (/\b(kharcha|kharch|chai|auto|transport|bhada|bijli)\b/i.test(normalized)) {
+  // 2. Detect petty-cash expense ("chhota kharcha") — avoid capturing "chai patti" grocery sales
+  const hasExplicitExpenseWord = /\b(kharcha|kharch|bhada|transport|bijli)\b/i.test(normalized);
+  const hasChaiOrAutoExpense =
+    /\b(chai|auto)\b/i.test(normalized) && !/\b(patti|pack|packet|kg|kilo|gram)\b/i.test(normalized);
+  if (hasExplicitExpenseWord || hasChaiOrAutoExpense) {
     const amtMatch = normalized.match(/\b(\d+(?:\.\d+)?)\b/);
     const cashPaise = amtMatch ? rupeesToPaise(Number(amtMatch[1])) : 0;
     const draft: TransactionDraft = {
@@ -313,13 +333,14 @@ export function parseSandboxUtterance(
   let cashPaise = cashMatch ? rupeesToPaise(Number(cashMatch[1])) : 0;
 
   const paidPaise = cashPaise + upiPaise;
-  const hasCreditKeyword = /\b(baaki|baki|udhaar|udhar|khate|khata|khatu|credit)\b/i.test(normalized);
-  const udhaarPaise =
-    paidPaise === 0 && hasCreditKeyword
-      ? subtotalPaise
-      : Math.max(0, subtotalPaise - paidPaise);
+  const hasCreditKeyword = /\b(baaki|baki|udhaar|udhar|khata\w*|khate\w*|khatu\w*|credit)\b/i.test(normalized);
 
-  if (paidPaise === 0 && udhaarPaise === 0 && subtotalPaise > 0) {
+  let udhaarPaise = 0;
+  if (paidPaise > 0) {
+    udhaarPaise = Math.max(0, subtotalPaise - paidPaise);
+  } else if (hasCreditKeyword) {
+    udhaarPaise = subtotalPaise;
+  } else if (subtotalPaise > 0) {
     cashPaise = subtotalPaise;
   }
 

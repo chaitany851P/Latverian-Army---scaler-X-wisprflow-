@@ -19,6 +19,13 @@ describe("Multilingual Hinglish & Indic parser + Fuse.js matcher", () => {
     expect(gu.draft.items[0]?.skuId).toBe("SKU_SUGAR");
     expect(gu.subtotalPaise).toBe(4000);
 
+    const guChana = parseSandboxUtterance("રમેશભાઈ ના ખાતામાં બે કિલો ચણા દાળ", "kirana");
+    expect(guChana.draft.items[0]?.skuId).toBe("SKU_CHANA_DAL");
+    expect(guChana.draft.items[0]?.quantityBase).toBe(2000);
+    expect(guChana.subtotalPaise).toBe(19200);
+    expect(guChana.draft.paymentSplit.udhaarPaise).toBe(19200);
+    expect(guChana.draft.paymentSplit.cashPaise).toBe(0);
+
     const ta = parseSandboxUtterance("ரமேஷ் 2 கிலோ அரிசி", "kirana");
     expect(ta.draft.items[0]?.skuId).toBe("SKU_BASMATI_RICE");
     expect(ta.subtotalPaise).toBe(18000);
@@ -57,6 +64,20 @@ describe("Multilingual Hinglish & Indic parser + Fuse.js matcher", () => {
 
     const correction = parseSandboxUtterance("Nahi 2 nahi 1 kilo");
     expect(correction.draft.intent).toBe("CORRECTION");
+  });
+
+  it("defaults walk-in sales without credit keywords to cash and rejects unrelated fuzzy noise", () => {
+    const cashSale = parseSandboxUtterance("2 kilo chawal", "kirana");
+    expect(cashSale.draft.paymentSplit.cashPaise).toBe(18000);
+    expect(cashSale.draft.paymentSplit.udhaarPaise).toBe(0);
+
+    const unknown = parseSandboxUtterance("2 kilo zzzunknown", "kirana");
+    expect(unknown.draft.items.length).toBe(0);
+    expect(unknown.draft.ambiguousFields).toContain("items");
+
+    const tea = parseSandboxUtterance("1 pack chai patti", "kirana");
+    expect(tea.draft.intent).toBe("SALE");
+    expect(tea.draft.items[0]?.skuId).toBe("SKU_TEA");
   });
 
   it("handles empty transcript gracefully without throwing", () => {
