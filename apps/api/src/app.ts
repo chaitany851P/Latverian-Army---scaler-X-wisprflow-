@@ -61,15 +61,37 @@ export async function buildApp(options: BuildAppOptions = {}) {
     {
       schema: {
         tags: ["Health"],
-        summary: "Liveness check"
+        summary: "Liveness and Postgres connectivity check"
       }
     },
-    async () => {
-      return HealthResponseSchema.parse({
-        status: "ok",
+    async (_request, reply) => {
+      let status: "ok" | "degraded" = "ok";
+      if (dbHandle) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const queryPromise = dbHandle.pool.query("SELECT 1");
+          // Attach noop rejection handler in case the timeout branch wins first
+          queryPromise.catch(() => undefined);
+          await Promise.race([
+            queryPromise,
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => reject(new Error("Database ping timed out")), 1500);
+            })
+          ]);
+        } catch {
+          status = "degraded";
+        } finally {
+          if (timer !== undefined) {
+            clearTimeout(timer);
+          }
+        }
+      }
+      const payload = HealthResponseSchema.parse({
+        status,
         service: geminiClient ? "voicekhata-api+ai" : "voicekhata-api",
         timestamp: new Date().toISOString()
       });
+      return reply.status(status === "ok" ? 200 : 503).send(payload);
     }
   );
 
@@ -139,6 +161,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
               type: "string",
               enum: StorePresetSchema.options,
               default: "kirana"
+            },
+            activeResult: {
+              type: ["object", "null"],
+              additionalProperties: true,
+              description: "Optional active Draft Card snapshot for in-place CORRECTION commands"
             }
           }
         }
@@ -149,7 +176,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
       if (!parsed.success) {
         return reply.status(400).send({ error: "Invalid request body", issues: parsed.error.issues });
       }
-      return parseSandboxUtterance(parsed.data.transcript, parsed.data.preset);
+      return parseSandboxUtterance(
+        parsed.data.transcript,
+        parsed.data.preset,
+        parsed.data.activeResult ?? undefined
+      );
     }
   );
 

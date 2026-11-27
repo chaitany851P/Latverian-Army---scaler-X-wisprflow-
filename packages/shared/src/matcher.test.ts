@@ -98,4 +98,51 @@ describe("Multilingual Hinglish & Indic parser + Fuse.js matcher", () => {
     const matches = fuzzyMatchSkus("kanda", "produce");
     expect(matches[0]?.skuId).toBe("SKU_ONION");
   });
+
+  it("patches active cart quantity and removes items on CORRECTION instead of wiping cart", () => {
+    const base = parseSandboxUtterance("रमेश भाई के खाते में 2 किलो खान 20 रुपए किलो", "kirana");
+    const qtyPatched = parseSandboxUtterance("Nahi 2 nahi 1 kilo", "kirana", base);
+
+    expect(qtyPatched.draft.intent).toBe("CORRECTION");
+    expect(qtyPatched.draft.items.length).toBe(1);
+    expect(qtyPatched.draft.items[0]?.skuId).toBe("SKU_SUGAR");
+    expect(qtyPatched.draft.items[0]?.quantityBase).toBe(1000);
+    expect(qtyPatched.subtotalPaise).toBe(2000);
+    expect(qtyPatched.draft.paymentSplit.udhaarPaise).toBe(2000);
+    expect(qtyPatched.englishSummary).toContain("Corrected Bill");
+
+    const multi = parseSandboxUtterance("Ramesh ko 2 kilo chawal, 1 litre doodh, 100 rupaye jama", "kirana");
+    const removedMilk = parseSandboxUtterance("doodh hatao", "kirana", multi);
+    expect(removedMilk.draft.items.length).toBe(1);
+    expect(removedMilk.draft.items[0]?.skuId).toBe("SKU_BASMATI_RICE");
+    expect(removedMilk.subtotalPaise).toBe(18000);
+    expect(removedMilk.draft.paymentSplit.cashPaise).toBe(10000);
+    expect(removedMilk.draft.paymentSplit.udhaarPaise).toBe(8000);
+
+    const gramEdit = parseSandboxUtterance("nahi 500 gram", "kirana", removedMilk);
+    expect(gramEdit.draft.items[0]?.quantityBase).toBe(500);
+    expect(gramEdit.subtotalPaise).toBe(4500);
+    expect(gramEdit.draft.paymentSplit.cashPaise).toBe(4500);
+    expect(gramEdit.draft.paymentSplit.udhaarPaise).toBe(0);
+  });
+
+  it("captures unnumbered items after 'aur' and normalizes spoken numbers above 5", () => {
+    const pair = parseSandboxUtterance("2 kilo chawal aur doodh", "kirana");
+    expect(pair.draft.items.length).toBe(2);
+    expect(pair.draft.items[0]?.skuId).toBe("SKU_BASMATI_RICE");
+    expect(pair.draft.items[0]?.quantityBase).toBe(2000);
+    expect(pair.draft.items[1]?.skuId).toBe("SKU_AMUL_MILK_1L");
+    expect(pair.draft.items[1]?.quantityBase).toBe(1);
+    expect(pair.subtotalPaise).toBe(23400);
+
+    const tenKg = parseSandboxUtterance("दस किलो चावल", "kirana");
+    expect(tenKg.draft.items[0]?.skuId).toBe("SKU_BASMATI_RICE");
+    expect(tenKg.draft.items[0]?.quantityBase).toBe(10000);
+    expect(tenKg.subtotalPaise).toBe(90000);
+
+    const sixPacks = parseSandboxUtterance("chhe pack maggi", "kirana");
+    expect(sixPacks.draft.items[0]?.skuId).toBe("SKU_MAGGI_SMALL");
+    expect(sixPacks.draft.items[0]?.quantityBase).toBe(6);
+    expect(sixPacks.subtotalPaise).toBe(9000);
+  });
 });

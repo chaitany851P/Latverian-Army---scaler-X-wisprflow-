@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  buildEnglishSummary,
   formatPaiseAsRupees,
   getCatalogForPreset,
   parseSandboxUtterance,
@@ -23,7 +24,7 @@ import {
 } from "../../components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { buildGeneratedBill, getMonthEndIsoDate, type GeneratedBill } from "../../lib/bill";
-import { offlineCounterDb, type OfflinePendingDraft } from "../../lib/offline-db";
+import { offlineCounterDb, type HoldCartState, type OfflinePendingDraft } from "../../lib/offline-db";
 import { getSpeechRecognitionConstructor, type BrowserSpeechRecognition } from "../../lib/speech";
 import { generateUpiQrDataUrl } from "../../lib/upi-qr";
 import { getLocaleConfig, SUPPORTED_LOCALES, type AppLocale } from "../../messages/translations";
@@ -48,16 +49,6 @@ const SAMPLE_UTTERANCES = [
   "200 rupaye chai aur transport kharcha",
   "Nahi 2 nahi 1 kilo"
 ];
-
-interface HoldCartState {
-  id: string;
-  label: string;
-  transcript: string;
-  parsed: SandboxParseResult | null;
-  selectedCustomer: SeedCustomer | null;
-  dueDateIso: string;
-  source: "api" | "browser" | null;
-}
 
 export function CounterBench() {
   const isHydrated = useSyncExternalStore(
@@ -105,8 +96,11 @@ export function CounterBench() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
+  const hasLoadedHoldWorkspaceRef = useRef(false);
 
   const activeCart = carts.find((c) => c.id === activeCartId) ?? carts[0]!;
+  const activeCartRef = useRef(activeCart);
+  activeCartRef.current = activeCart;
 
   const updateActiveCart = useCallback(
     (updater: (prev: HoldCartState) => HoldCartState) => {
@@ -123,6 +117,48 @@ export function CounterBench() {
   useEffect(() => {
     void loadOfflineDrafts();
   }, [loadOfflineDrafts]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const restoreWorkspace = async () => {
+      try {
+        const saved = await offlineCounterDb.holdCarts.get("workspace");
+        if (!cancelled && saved && saved.carts.length > 0) {
+          setPreset(saved.preset);
+          setCarts(saved.carts);
+          const validActive = saved.carts.some((c) => c.id === saved.activeCartId)
+            ? saved.activeCartId
+            : saved.carts[0]!.id;
+          setActiveCartId(validActive);
+        }
+      } catch {
+        // Keep initial default cart when IndexedDB is unavailable
+      } finally {
+        if (!cancelled) {
+          hasLoadedHoldWorkspaceRef.current = true;
+        }
+      }
+    };
+    void restoreWorkspace();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedHoldWorkspaceRef.current) return;
+    void offlineCounterDb.holdCarts
+      .put({
+        id: "workspace",
+        preset,
+        activeCartId,
+        carts,
+        updatedAt: new Date().toISOString()
+      })
+      .catch(() => {
+        // Ignore IndexedDB quota/storage errors so live billing stays unblocked
+      });
+  }, [carts, activeCartId, preset]);
 
   const stopAudioMonitor = useCallback(() => {
     if (rafRef.current !== null) {
@@ -150,13 +186,22 @@ export function CounterBench() {
   }, [stopAudioMonitor]);
 
   const runParse = useCallback(
-    async (textToParse: string, targetPreset: StorePreset) => {
+    async (
+      textToParse: string,
+      targetPreset: StorePreset,
+      options?: { skipActiveContext?: boolean }
+    ) => {
+      const currentParsed = options?.skipActiveContext ? null : (activeCartRef.current?.parsed ?? null);
       setIsParsing(true);
       try {
         const res = await fetch(`${API_URL}/api/v1/sandbox/parse`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transcript: textToParse, preset: targetPreset })
+          body: JSON.stringify({
+            transcript: textToParse,
+            preset: targetPreset,
+            ...(currentParsed ? { activeResult: currentParsed } : {})
+          })
         });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
@@ -166,18 +211,30 @@ export function CounterBench() {
           ...prev,
           transcript: textToParse,
           parsed: data,
-          selectedCustomer:
-            data.candidateCustomers.length === 1 ? (data.candidateCustomers[0] ?? null) : null,
+          selectedCustomer: data.draft.customerId
+            ? (data.candidateCustomers.find((c) => c.customerId === data.draft.customerId) ??
+              prev.selectedCustomer)
+            : data.candidateCustomers.length === 1
+              ? (data.candidateCustomers[0] ?? null)
+              : null,
           source: "api"
         }));
       } catch {
-        const localData = parseSandboxUtterance(textToParse, targetPreset);
+        const localData = parseSandboxUtterance(
+          textToParse,
+          targetPreset,
+          currentParsed ?? undefined
+        );
         updateActiveCart((prev) => ({
           ...prev,
           transcript: textToParse,
           parsed: localData,
-          selectedCustomer:
-            localData.candidateCustomers.length === 1 ? (localData.candidateCustomers[0] ?? null) : null,
+          selectedCustomer: localData.draft.customerId
+            ? (localData.candidateCustomers.find((c) => c.customerId === localData.draft.customerId) ??
+              prev.selectedCustomer)
+            : localData.candidateCustomers.length === 1
+              ? (localData.candidateCustomers[0] ?? null)
+              : null,
           source: "browser"
         }));
       } finally {
@@ -274,28 +331,75 @@ export function CounterBench() {
     setActiveCartId(newId);
   };
 
+  const selectCandidateCustomer = (cust: SeedCustomer) => {
+    updateActiveCart((prev) => {
+      if (!prev.parsed) {
+        return { ...prev, selectedCustomer: cust };
+      }
+      const nextDraft = {
+        ...prev.parsed.draft,
+        customerId: cust.customerId,
+        customerName: cust.displayName,
+        ambiguousFields: prev.parsed.draft.ambiguousFields.filter((f) => f !== "customerId")
+      };
+      const baseWarnings = prev.parsed.warnings.filter(
+        (w) => !w.startsWith("Multiple customers matched") && !w.startsWith("Credit warning:")
+      );
+      const nextWarnings =
+        cust.riskTier === "RED" && nextDraft.paymentSplit.udhaarPaise > 0
+          ? [...baseWarnings, `Credit warning: ${cust.displayName} is RED tier (overdue balance).`]
+          : baseWarnings;
+
+      return {
+        ...prev,
+        selectedCustomer: cust,
+        parsed: {
+          ...prev.parsed,
+          draft: nextDraft,
+          englishSummary: buildEnglishSummary(nextDraft, prev.parsed.subtotalPaise),
+          warnings: nextWarnings
+        }
+      };
+    });
+  };
+
   const applyPaymentSplit = (nextCashPaise: number, nextUpiPaise: number) => {
     updateActiveCart((prev) => {
       if (!prev.parsed) return prev;
       const safeCash = Math.max(0, Math.round(nextCashPaise));
       const safeUpi = Math.max(0, Math.round(nextUpiPaise));
       const isSettlement = prev.parsed.draft.intent === "PAYMENT";
-      const totalTarget = isSettlement ? 0 : prev.parsed.subtotalPaise;
-      const nextUdhaar = Math.max(0, totalTarget - (safeCash + safeUpi));
+      const nextSubtotal = isSettlement ? safeCash + safeUpi : prev.parsed.subtotalPaise;
+      const nextUdhaar = Math.max(0, (isSettlement ? 0 : nextSubtotal) - (safeCash + safeUpi));
+
+      const nextDraft = {
+        ...prev.parsed.draft,
+        paymentSplit: {
+          cashPaise: safeCash,
+          upiPaise: safeUpi,
+          udhaarPaise: nextUdhaar
+        }
+      };
+
+      const resolvedCust =
+        prev.selectedCustomer ??
+        (prev.parsed.candidateCustomers.length === 1
+          ? (prev.parsed.candidateCustomers[0] ?? null)
+          : null);
+      const baseWarnings = prev.parsed.warnings.filter((w) => !w.startsWith("Credit warning:"));
+      const nextWarnings =
+        resolvedCust?.riskTier === "RED" && nextUdhaar > 0
+          ? [...baseWarnings, `Credit warning: ${resolvedCust.displayName} is RED tier (overdue balance).`]
+          : baseWarnings;
 
       return {
         ...prev,
         parsed: {
           ...prev.parsed,
-          ...(isSettlement ? { subtotalPaise: safeCash + safeUpi } : {}),
-          draft: {
-            ...prev.parsed.draft,
-            paymentSplit: {
-              cashPaise: safeCash,
-              upiPaise: safeUpi,
-              udhaarPaise: nextUdhaar
-            }
-          }
+          ...(isSettlement ? { subtotalPaise: nextSubtotal } : {}),
+          draft: nextDraft,
+          englishSummary: buildEnglishSummary(nextDraft, nextSubtotal),
+          warnings: nextWarnings
         }
       };
     });
@@ -401,7 +505,7 @@ export function CounterBench() {
         source: "browser"
       }));
     } else {
-      void runParse(row.rawTranscript, row.preset ?? preset);
+      void runParse(row.rawTranscript, row.preset ?? preset, { skipActiveContext: true });
     }
     setActiveTab("counter");
   };
@@ -652,9 +756,7 @@ export function CounterBench() {
                       <button
                         key={cust.customerId}
                         type="button"
-                        onClick={() =>
-                          updateActiveCart((prev) => ({ ...prev, selectedCustomer: cust }))
-                        }
+                        onClick={() => selectCandidateCustomer(cust)}
                         className={`rounded-xl border px-3 py-1.5 text-xs font-semibold ${
                           resolvedCustomer?.customerId === cust.customerId
                             ? "border-slate-900 bg-slate-900 text-white"
@@ -762,7 +864,7 @@ export function CounterBench() {
                       <input
                         type="number"
                         min={0}
-                        step="1"
+                        step="0.01"
                         value={Number((parsed.draft.paymentSplit.cashPaise / 100).toFixed(2))}
                         onChange={(e) => {
                           const val = Number(e.target.value);
@@ -777,7 +879,7 @@ export function CounterBench() {
                       <input
                         type="number"
                         min={0}
-                        step="1"
+                        step="0.01"
                         value={Number((parsed.draft.paymentSplit.upiPaise / 100).toFixed(2))}
                         onChange={(e) => {
                           const val = Number(e.target.value);

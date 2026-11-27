@@ -31,6 +31,54 @@ const NUMBER_WORDS: Record<string, number> = {
   chaar: 4,
   paanch: 5,
   panch: 5,
+  chhah: 6,
+  chha: 6,
+  chhe: 6,
+  saha: 6,
+  aru: 6,
+  aaru: 6,
+  saat: 7,
+  sat: 7,
+  elu: 7,
+  ezhu: 7,
+  yedu: 7,
+  aath: 8,
+  ath: 8,
+  ettu: 8,
+  entu: 8,
+  enimidi: 8,
+  nau: 9,
+  nav: 9,
+  ombattu: 9,
+  onbathu: 9,
+  tommidi: 9,
+  das: 10,
+  dus: 10,
+  daha: 10,
+  hattu: 10,
+  paththu: 10,
+  pathu: 10,
+  padi: 10,
+  gyarah: 11,
+  barah: 12,
+  baarah: 12,
+  bara: 12,
+  pandrah: 15,
+  pandra: 15,
+  bees: 20,
+  bis: 20,
+  vis: 20,
+  iruvai: 20,
+  pachis: 25,
+  pachchis: 25,
+  pachhis: 25,
+  pachas: 50,
+  pachchas: 50,
+  panas: 50,
+  pannas: 50,
+  sau: 100,
+  shambhar: 100,
+  nooru: 100,
   pao: 0.25,
   pav: 0.25,
   paav: 0.25,
@@ -107,7 +155,178 @@ export function fuzzyMatchCustomers(query: string, limit = 5): SeedCustomer[] {
   return fuse.search(transliterateIndicToLatin(query), { limit }).map((r) => r.item);
 }
 
-function buildEnglishSummary(draft: TransactionDraft, subtotalPaise: number): string {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findItemAliasInNormalizedText(normalized: string, items: TransactionDraft["items"], catalog: SeedSku[]): number {
+  const candidates = items
+    .map((item, idx) => {
+      const sku =
+        catalog.find((s) => s.skuId === item.skuId) ??
+        STARTER_CATALOG.find((s) => s.skuId === item.skuId);
+      const terms = sku
+        ? [...sku.aliases, sku.canonicalName.toLowerCase()]
+        : [item.canonicalName.toLowerCase()];
+      return { idx, terms };
+    })
+    .flatMap(({ idx, terms }) => terms.map((term) => ({ idx, term })))
+    .sort((a, b) => b.term.length - a.term.length);
+
+  for (const { idx, term } of candidates) {
+    if (term && new RegExp(`\\b${escapeRegExp(term)}\\b`, "i").test(normalized)) {
+      return idx;
+    }
+  }
+  return items.length - 1;
+}
+
+function applyCorrectionToActiveResult(
+  rawTranscript: string,
+  normalized: string,
+  preset: StorePreset,
+  activeResult: SandboxParseResult
+): SandboxParseResult {
+  const catalog = getCatalogForPreset(preset);
+  const nextItems = activeResult.draft.items.map((item) => ({ ...item }));
+
+  if (nextItems.length === 0) {
+    const emptyCorrectionDraft: TransactionDraft = {
+      intent: "CORRECTION",
+      rawTranscript,
+      ...(activeResult.draft.customerId ? { customerId: activeResult.draft.customerId } : {}),
+      ...(activeResult.draft.customerName ? { customerName: activeResult.draft.customerName } : {}),
+      items: [],
+      paymentSplit: { cashPaise: 0, upiPaise: 0, udhaarPaise: 0 },
+      needsConfirmation: true,
+      ambiguousFields: ["items"]
+    };
+    return {
+      ...activeResult,
+      draft: emptyCorrectionDraft,
+      normalizedTranscript: normalized,
+      englishSummary: buildEnglishSummary(emptyCorrectionDraft, 0),
+      subtotalPaise: 0,
+      taxPaise: 0,
+      warnings: ["No active cart items to update or remove."]
+    };
+  }
+
+  const targetIdx = findItemAliasInNormalizedText(normalized, nextItems, catalog);
+  const targetItem = nextItems[targetIdx];
+  const nums = Array.from(normalized.matchAll(/\b(\d+(?:\.\d+)?)\b/g))
+    .map((m) => Number(m[1]))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const hasRemoveKeyword = /\b(hatao|hatado|hata|cancel|nikal|nikalo|remove|delete|mat)\b/i.test(normalized);
+  const hasClearAllKeyword = /\b(sab|pura|poora|all|bill)\b/i.test(normalized) && hasRemoveKeyword;
+
+  const warnings: string[] = [];
+  if (hasClearAllKeyword) {
+    nextItems.splice(0, nextItems.length);
+    warnings.push("Cleared all items from active Draft Card.");
+  } else if (hasRemoveKeyword || nums.length === 0) {
+    const removed = nextItems.splice(targetIdx, 1)[0];
+    warnings.push(
+      removed
+        ? `Removed ${removed.canonicalName} from active Draft Card.`
+        : "Removed item from active Draft Card."
+    );
+  } else if (targetItem) {
+    const spokenQty = nums[nums.length - 1] ?? 1;
+    const targetSku =
+      catalog.find((s) => s.skuId === targetItem.skuId) ??
+      STARTER_CATALOG.find((s) => s.skuId === targetItem.skuId);
+    const isGramsOnly =
+      /\b(g|gram|graam)\b/i.test(normalized) && !/\b(kg|kilo|keji)\b/i.test(normalized);
+
+    let nextQuantityBase: number;
+    let effectiveBillingUnits: number;
+    if (isGramsOnly && targetItem.unitLabel === "kg") {
+      nextQuantityBase = Math.max(1, Math.round(spokenQty));
+      effectiveBillingUnits = spokenQty / 1000;
+    } else {
+      const multiplier = targetSku
+        ? targetSku.skuType === "loose"
+          ? targetSku.baseMultiplier
+          : 1
+        : targetItem.unitLabel === "kg"
+          ? 1000
+          : 1;
+      nextQuantityBase = Math.max(1, Math.round(spokenQty * multiplier));
+      effectiveBillingUnits = spokenQty;
+    }
+
+    nextItems[targetIdx] = {
+      ...targetItem,
+      quantityBase: nextQuantityBase,
+      lineTotalPaise: Math.max(0, Math.round(effectiveBillingUnits * targetItem.unitPricePaise))
+    };
+    warnings.push(`Updated ${targetItem.canonicalName} quantity in active Draft Card.`);
+  }
+
+  const nextSubtotalPaise = nextItems.reduce((sum, item) => sum + item.lineTotalPaise, 0);
+  const nextTaxPaise = nextItems.reduce((sum, item) => {
+    const sku =
+      catalog.find((s) => s.skuId === item.skuId) ??
+      STARTER_CATALOG.find((s) => s.skuId === item.skuId);
+    return sum + splitMrpInclusiveTax(item.lineTotalPaise, sku?.gstPercent ?? 0).taxPaise;
+  }, 0);
+
+  const origCash = activeResult.draft.paymentSplit.cashPaise;
+  const origUpi = activeResult.draft.paymentSplit.upiPaise;
+  const origUdhaar = activeResult.draft.paymentSplit.udhaarPaise;
+  const origPaid = origCash + origUpi;
+
+  let nextCash = 0;
+  let nextUpi = 0;
+  let nextUdhaar = 0;
+  if (nextSubtotalPaise > 0) {
+    if (origPaid === 0) {
+      nextUdhaar = nextSubtotalPaise;
+    } else if (origUdhaar === 0 && origPaid >= activeResult.subtotalPaise) {
+      if (origUpi > 0 && origCash === 0) {
+        nextUpi = nextSubtotalPaise;
+      } else if (origCash > 0 && origUpi === 0) {
+        nextCash = nextSubtotalPaise;
+      } else {
+        nextCash = Math.min(origCash, nextSubtotalPaise);
+        nextUpi = Math.max(0, nextSubtotalPaise - nextCash);
+      }
+    } else {
+      nextCash = Math.min(origCash, nextSubtotalPaise);
+      nextUpi = Math.min(origUpi, Math.max(0, nextSubtotalPaise - nextCash));
+      nextUdhaar = Math.max(0, nextSubtotalPaise - nextCash - nextUpi);
+    }
+  }
+
+  const ambiguousFields = activeResult.draft.ambiguousFields.filter((f) => f !== "items");
+  if (nextItems.length === 0) {
+    ambiguousFields.push("items");
+  }
+
+  const patchedDraft: TransactionDraft = {
+    intent: "CORRECTION",
+    rawTranscript,
+    ...(activeResult.draft.customerId ? { customerId: activeResult.draft.customerId } : {}),
+    ...(activeResult.draft.customerName ? { customerName: activeResult.draft.customerName } : {}),
+    items: nextItems,
+    paymentSplit: { cashPaise: nextCash, upiPaise: nextUpi, udhaarPaise: nextUdhaar },
+    needsConfirmation: true,
+    ambiguousFields
+  };
+
+  return {
+    ...activeResult,
+    draft: patchedDraft,
+    normalizedTranscript: normalized,
+    englishSummary: buildEnglishSummary(patchedDraft, nextSubtotalPaise),
+    subtotalPaise: nextSubtotalPaise,
+    taxPaise: nextTaxPaise,
+    warnings
+  };
+}
+
+export function buildEnglishSummary(draft: TransactionDraft, subtotalPaise: number): string {
   if (draft.intent === "EXPENSE") {
     return `Drawer Cash Expense: ₹${formatPaiseAsRupees(draft.paymentSplit.cashPaise)}`;
   }
@@ -116,7 +335,7 @@ function buildEnglishSummary(draft: TransactionDraft, subtotalPaise: number): st
     const party = draft.customerName ? ` from ${draft.customerName}` : "";
     return `Udhaar Settlement${party}: ₹${formatPaiseAsRupees(paid)} received`;
   }
-  if (draft.intent === "CORRECTION") {
+  if (draft.intent === "CORRECTION" && draft.items.length === 0) {
     return "Draft Edit: Update or remove items in active cart";
   }
   if (draft.items.length === 0) {
@@ -126,7 +345,8 @@ function buildEnglishSummary(draft: TransactionDraft, subtotalPaise: number): st
     .map((i) => `${i.canonicalName} (${i.quantityBase} ${i.unitLabel === "kg" ? "g" : i.unitLabel})`)
     .join(", ");
   const party = draft.customerName ? ` for ${draft.customerName}` : "";
-  return `Bill${party}: ${itemsStr} | Total ₹${formatPaiseAsRupees(subtotalPaise)} (Paid ₹${formatPaiseAsRupees(draft.paymentSplit.cashPaise + draft.paymentSplit.upiPaise)}, Udhaar ₹${formatPaiseAsRupees(draft.paymentSplit.udhaarPaise)})`;
+  const prefix = draft.intent === "CORRECTION" ? "Corrected Bill" : "Bill";
+  return `${prefix}${party}: ${itemsStr} | Total ₹${formatPaiseAsRupees(subtotalPaise)} (Paid ₹${formatPaiseAsRupees(draft.paymentSplit.cashPaise + draft.paymentSplit.upiPaise)}, Udhaar ₹${formatPaiseAsRupees(draft.paymentSplit.udhaarPaise)})`;
 }
 
 /**
@@ -135,7 +355,8 @@ function buildEnglishSummary(draft: TransactionDraft, subtotalPaise: number): st
  */
 export function parseSandboxUtterance(
   rawTranscript: string,
-  preset: StorePreset = "kirana"
+  preset: StorePreset = "kirana",
+  activeResult?: SandboxParseResult
 ): SandboxParseResult {
   const trimmed = rawTranscript.trim();
   const normalized = normalizeMultilingualNumbers(trimmed);
@@ -163,7 +384,10 @@ export function parseSandboxUtterance(
   }
 
   // 1. Detect correction intent
-  if (/\b(nahi|nahin|nako|hatao|cancel|galat|mat)\b/i.test(normalized)) {
+  if (/\b(nahi|nahin|nako|hatao|hatado|cancel|galat|mat|remove|delete|nikal|nikalo)\b/i.test(normalized)) {
+    if (activeResult && activeResult.draft.items.length > 0) {
+      return applyCorrectionToActiveResult(trimmed, normalized, preset, activeResult);
+    }
     const draft: TransactionDraft = {
       intent: "CORRECTION",
       rawTranscript: trimmed,
@@ -239,6 +463,7 @@ export function parseSandboxUtterance(
   );
 
   for (const clause of clauses) {
+    let clauseMatched = false;
     for (const match of clause.matchAll(itemWithOptionalPriceRegex)) {
       const rawQty = Number(match[1]);
       const rawPhrase = (match[2] ?? "").trim();
@@ -288,6 +513,7 @@ export function parseSandboxUtterance(
           lineTotalPaise,
           confidence: spokenPriceRupees ? 0.92 : 0.88
         });
+        clauseMatched = true;
       } else if (spokenPriceRupees !== null && Number.isFinite(spokenPriceRupees) && spokenPriceRupees > 0) {
         // Preserve spoken ad-hoc item when user explicitly stated unit price
         const unitPricePaise = rupeesToPaise(spokenPriceRupees);
@@ -302,24 +528,38 @@ export function parseSandboxUtterance(
           confidence: 0.55
         });
         warnings.push(`Unlisted item "${cleanPhrase}" priced from speech at ₹${formatPaiseAsRupees(unitPricePaise)}.`);
+        clauseMatched = true;
       }
     }
-  }
 
-  // Fallback: match direct SKU aliases without explicit leading number (defaults qty = 1)
-  if (items.length === 0) {
-    for (const sku of catalog) {
-      if (sku.aliases.some((alias) => new RegExp(`\\b${alias}\\b`, "i").test(normalized))) {
-        items.push({
-          skuId: sku.skuId,
-          canonicalName: sku.canonicalName,
-          quantityBase: sku.skuType === "loose" ? sku.baseMultiplier : 1,
-          unitLabel: sku.unitLabel,
-          unitPricePaise: sku.sellPricePaise,
-          lineTotalPaise: sku.sellPricePaise,
-          confidence: 0.72
-        });
-        candidateSkus.push(sku);
+    // Per-clause fallback when a clause names an SKU without a leading quantity (e.g. "2 kilo chawal aur doodh")
+    const isPurePaymentClause = new RegExp(
+      `^\\d+(?:\\.\\d+)?\\s*(?:${CURRENCY_PATTERN}|${paidOrUpiLookahead})\\b`,
+      "i"
+    ).test(clause);
+    if (!clauseMatched && !isPurePaymentClause) {
+      const sortedAliases = catalog
+        .flatMap((sku) => sku.aliases.map((alias) => ({ sku, alias })))
+        .sort((a, b) => b.alias.length - a.alias.length);
+      for (const { sku, alias } of sortedAliases) {
+        if (
+          !items.some((existing) => existing.skuId === sku.skuId) &&
+          new RegExp(`\\b${escapeRegExp(alias)}\\b`, "i").test(clause)
+        ) {
+          items.push({
+            skuId: sku.skuId,
+            canonicalName: sku.canonicalName,
+            quantityBase: sku.skuType === "loose" ? sku.baseMultiplier : 1,
+            unitLabel: sku.unitLabel,
+            unitPricePaise: sku.sellPricePaise,
+            lineTotalPaise: sku.sellPricePaise,
+            confidence: 0.72
+          });
+          if (!candidateSkus.some((s) => s.skuId === sku.skuId)) {
+            candidateSkus.push(sku);
+          }
+          break;
+        }
       }
     }
   }
