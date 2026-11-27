@@ -1,0 +1,23 @@
+[
+  {
+    "id": "hinglish-split-udhaar",
+    "transcript": "Ramesh ko 2 kilo chawal, 1 litre doodh, 100 rupaye jama, baaki mahine ke end mein",
+    "expectedIntent": "SALE",
+    "expectedItemsCount": 2,
+    "expectedNeedsConfirmation": true
+  },
+  {
+    "id": "galla-petty-cash",
+    "transcript": "200 rupaye chai aur transport kharcha",
+    "expectedIntent": "EXPENSE",
+    "expectedItemsCount": 0,
+    "expectedNeedsConfirmation": true
+  },
+  {
+    "id": "mid-flow-correction",
+    "transcript": "Nahi 2 nahi 1 kilo karo aur last item hatao",
+    "expectedIntent": "CORRECTION",
+    "expectedItemsCount": 0,
+    "expectedNeedsConfirmation": true
+  }
+]

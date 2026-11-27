@@ -1,0 +1,38 @@
+{
+  "name": "voicekhata-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Voice-first multilingual bookkeeping, ledger, and inventory copilot for Indian small businesses",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=@voicekhata/api",
+    "dev:worker": "npm run dev:worker --workspace=@voicekhata/api",
+    "dev:web": "npm run dev --workspace=@voicekhata/web",
+    "build:libs": "npm run build --workspace=@voicekhata/shared && npm run build --workspace=@voicekhata/db",
+    "build": "npm run build:libs && npm run build --workspace=@voicekhata/api && npm run build --workspace=@voicekhata/web",
+    "typecheck": "npm run build:libs && npm run typecheck --workspace=@voicekhata/shared && npm run typecheck --workspace=@voicekhata/db && npm run typecheck --workspace=@voicekhata/api && npm run typecheck --workspace=@voicekhata/web",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "db:generate": "npm run db:generate --workspace=@voicekhata/db"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^24.19.4",
+    "eslint": "^10.15.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.74.0",
+    "vitest": "^5.1.2"
+  }
+}
