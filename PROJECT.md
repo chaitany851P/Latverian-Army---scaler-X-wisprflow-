@@ -34,5 +34,6 @@ Voice-first multilingual bookkeeping, *khata* ledger, and inventory copilot for 
 * Docker Compose runtime execution not verified on this Windows host yet (Docker Desktop not installed locally)
 
 ## Recent Changes
+* **2026-11-27:** Added `.github/workflows/docker-verify.yml` (Docker Buildx builds, non-root check, live Compose runtime smoke checks) and hardened API/Web Dockerfiles (`--chown=node:node`, `npm prune --omit=dev`).
 * **2026-11-27:** Added team engineering documentation in `plan/` (`WORKFLOW.md`, `FEATURES.md`, `DATABASE.md`, `API_AND_VOICE.md`, `UI_UX.md`).
 * **2026-11-27:** Scaffolded monorepo layout, Docker/Caddy/CI configs, installed workspace dependencies (`chore/dependencies`), and verified lint, typecheck, unit/API tests, build, and production audit.
