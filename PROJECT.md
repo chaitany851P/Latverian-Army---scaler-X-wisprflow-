@@ -20,7 +20,8 @@ Voice-first multilingual bookkeeping, *khata* ledger, and inventory copilot for 
 * `infra/` — PostgreSQL init SQL (`pg_trgm`) and Caddy TLS reverse proxy config
 
 ## How to Run
-* **Local dev (native Node 24):** Copy `.env.example` to `.env`, run `npm install`, then `npm run dev:api` / `npm run dev:web`
+* **One-command Windows launcher:** Double-click or run `start.bat` (builds shared libraries, launches API `:4000` + Web `:3000`, opens browser); run `stop.bat` to stop both cleanly
+* **Manual local dev:** Copy `.env.example` to `.env`, run `npm install`, then `npm run dev:api` / `npm run dev:web`
 * **Verification:** `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`
 * **Containerized (requires Docker Desktop):** `docker compose up --build`
 
@@ -34,6 +35,7 @@ Voice-first multilingual bookkeeping, *khata* ledger, and inventory copilot for 
 * Docker Compose runtime execution not verified on this Windows host yet (Docker Desktop not installed locally)
 
 ## Recent Changes
+* **2026-11-27:** Added `start.bat` and `stop.bat` launchers in project root (`PROJECT.md`, `README.md`, `plan/WORKFLOW.md` updated).
 * **2026-11-27:** Added open-source developer & human test bench tooling (`@fastify/swagger` + `@scalar/fastify-api-reference` at `/reference`, `fuse.js` Hinglish sandbox matcher, `shadcn/ui` Radix Tabs/Dialog primitives, browser Web Speech + RMS mic meter, dynamic UPI QR, and `Dexie.js` offline queue inspection UI).
 * **2026-11-27:** Added `.github/workflows/docker-verify.yml` (Docker Buildx builds, non-root check, live Compose runtime smoke checks) and hardened API/Web Dockerfiles (`--chown=node:node`, `npm prune --omit=dev`).
 * **2026-11-27:** Added team engineering documentation in `plan/` (`WORKFLOW.md`, `FEATURES.md`, `DATABASE.md`, `API_AND_VOICE.md`, `UI_UX.md`).

@@ -44,6 +44,8 @@ All shared DTOs, enums, and financial helpers live in `packages/shared/src/`:
 * **PostgreSQL 16** with `pg_trgm` enabled (via Docker Compose or hosted Postgres such as Neon/Supabase)
 
 ### Native Node Dev (Fastest on Windows without Docker)
+* **One-step Windows launcher:** Run `start.bat` (auto-creates `.env`, builds libs, starts API `:4000` + Web `:3000`, writes `.run.pid`) and `stop.bat` to stop.
+
 ```bash
 cp .env.example .env            # Fill DATABASE_URL, SARVAM_API_KEY, GEMINI_API_KEY
 npm install

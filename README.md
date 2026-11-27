@@ -17,6 +17,8 @@ See [`plan/README.md`](./plan/README.md) for development workflow, database ERD/
 
 ## Local Development
 
+**Windows Quick Start:** Run `start.bat` (auto-creates `.env`, builds shared libs, launches API `:4000` + Web `:3000`, opens browser) and `stop.bat` to stop.
+
 ```bash
 cp .env.example .env
 npm install
