@@ -13,6 +13,7 @@ export interface OfflinePendingDraft {
   englishSummary?: string;
   subtotalPaise?: number;
   taxPaise?: number;
+  dueDateIso?: string;
   billNumber?: string;
   draft?: TransactionDraft;
 }

@@ -4,6 +4,7 @@ import {
   formatPaiseAsRupees,
   getCatalogForPreset,
   parseSandboxUtterance,
+  rupeesToPaise,
   StorePresetSchema,
   type SandboxParseResult,
   type SeedCustomer,
@@ -21,7 +22,7 @@ import {
   DialogTrigger
 } from "../../components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
-import { buildGeneratedBill, type GeneratedBill } from "../../lib/bill";
+import { buildGeneratedBill, getMonthEndIsoDate, type GeneratedBill } from "../../lib/bill";
 import { offlineCounterDb, type OfflinePendingDraft } from "../../lib/offline-db";
 import { getSpeechRecognitionConstructor, type BrowserSpeechRecognition } from "../../lib/speech";
 import { generateUpiQrDataUrl } from "../../lib/upi-qr";
@@ -54,6 +55,7 @@ interface HoldCartState {
   transcript: string;
   parsed: SandboxParseResult | null;
   selectedCustomer: SeedCustomer | null;
+  dueDateIso: string;
   source: "api" | "browser" | null;
 }
 
@@ -81,6 +83,7 @@ export function CounterBench() {
           initialParsed.candidateCustomers.length === 1
             ? (initialParsed.candidateCustomers[0] ?? null)
             : null,
+        dueDateIso: getMonthEndIsoDate(),
         source: "browser"
       }
     ];
@@ -264,10 +267,38 @@ export function CounterBench() {
         transcript: "",
         parsed: null,
         selectedCustomer: null,
+        dueDateIso: getMonthEndIsoDate(),
         source: null
       }
     ]);
     setActiveCartId(newId);
+  };
+
+  const applyPaymentSplit = (nextCashPaise: number, nextUpiPaise: number) => {
+    updateActiveCart((prev) => {
+      if (!prev.parsed) return prev;
+      const safeCash = Math.max(0, Math.round(nextCashPaise));
+      const safeUpi = Math.max(0, Math.round(nextUpiPaise));
+      const isSettlement = prev.parsed.draft.intent === "PAYMENT";
+      const totalTarget = isSettlement ? 0 : prev.parsed.subtotalPaise;
+      const nextUdhaar = Math.max(0, totalTarget - (safeCash + safeUpi));
+
+      return {
+        ...prev,
+        parsed: {
+          ...prev.parsed,
+          ...(isSettlement ? { subtotalPaise: safeCash + safeUpi } : {}),
+          draft: {
+            ...prev.parsed.draft,
+            paymentSplit: {
+              cashPaise: safeCash,
+              upiPaise: safeUpi,
+              udhaarPaise: nextUdhaar
+            }
+          }
+        }
+      };
+    });
   };
 
   const handleSaveOfflineDraft = async (billOverride?: GeneratedBill) => {
@@ -288,7 +319,8 @@ export function CounterBench() {
       preset: billOverride?.preset ?? preset,
       previousBalancePaise: billOverride?.previousBalancePaise ?? resolvedCust?.previousBalancePaise ?? 0,
       subtotalPaise: billOverride?.currentBillPaise ?? currentParsed?.subtotalPaise ?? 0,
-      taxPaise: billOverride?.taxPaise ?? currentParsed?.taxPaise ?? 0
+      taxPaise: billOverride?.taxPaise ?? currentParsed?.taxPaise ?? 0,
+      dueDateIso: billOverride?.dueDateIso ?? activeCart.dueDateIso
     };
 
     const resolvedName = billOverride?.customerName ?? resolvedCust?.displayName;
@@ -318,6 +350,7 @@ export function CounterBench() {
       (currentParsed.candidateCustomers.length === 1 ? currentParsed.candidateCustomers[0] : null);
     const bill = buildGeneratedBill({
       preset,
+      dueDateIso: activeCart.dueDateIso,
       ...(customer ? { customerName: customer.displayName, previousBalancePaise: customer.previousBalancePaise } : {}),
       subtotalPaise: currentParsed.subtotalPaise,
       taxPaise: currentParsed.taxPaise,
@@ -333,6 +366,7 @@ export function CounterBench() {
     const bill = buildGeneratedBill({
       ...(row.billNumber ? { billNumber: row.billNumber } : {}),
       issuedAtIso: row.createdAt,
+      ...(row.dueDateIso ? { dueDateIso: row.dueDateIso } : {}),
       preset: row.preset ?? "kirana",
       ...(row.customerName ? { customerName: row.customerName } : {}),
       previousBalancePaise: row.previousBalancePaise ?? 0,
@@ -354,6 +388,7 @@ export function CounterBench() {
       updateActiveCart((prev) => ({
         ...prev,
         transcript: row.rawTranscript,
+        dueDateIso: row.dueDateIso ?? prev.dueDateIso,
         parsed: {
           ...localResult,
           draft: row.draft ?? localResult.draft,
@@ -671,6 +706,142 @@ export function CounterBench() {
                   </p>
                 </div>
               </div>
+
+              {parsed.draft.intent === "SALE" || parsed.draft.intent === "PAYMENT" ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-slate-700">
+                      Payment Split (Paid vs. Udhaar Remaining)
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => applyPaymentSplit(parsed.subtotalPaise, 0)}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${
+                          parsed.draft.paymentSplit.udhaarPaise === 0 &&
+                          parsed.draft.paymentSplit.cashPaise > 0 &&
+                          parsed.draft.paymentSplit.upiPaise === 0
+                            ? "border-emerald-600 bg-emerald-600 text-white"
+                            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        Full Cash
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPaymentSplit(0, parsed.subtotalPaise)}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${
+                          parsed.draft.paymentSplit.udhaarPaise === 0 &&
+                          parsed.draft.paymentSplit.upiPaise > 0 &&
+                          parsed.draft.paymentSplit.cashPaise === 0
+                            ? "border-emerald-600 bg-emerald-600 text-white"
+                            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        Full UPI
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPaymentSplit(0, 0)}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${
+                          parsed.draft.paymentSplit.cashPaise === 0 &&
+                          parsed.draft.paymentSplit.upiPaise === 0 &&
+                          parsed.draft.paymentSplit.udhaarPaise > 0
+                            ? "border-amber-600 bg-amber-600 text-white"
+                            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        Full Udhaar
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <label className="block text-xs">
+                      <span className="font-medium text-slate-600">Cash Paid (₹)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="1"
+                        value={Number((parsed.draft.paymentSplit.cashPaise / 100).toFixed(2))}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          const nextCash = Number.isFinite(val) && val >= 0 ? rupeesToPaise(val) : 0;
+                          applyPaymentSplit(nextCash, parsed.draft.paymentSplit.upiPaise);
+                        }}
+                        className="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-semibold"
+                      />
+                    </label>
+                    <label className="block text-xs">
+                      <span className="font-medium text-slate-600">UPI Paid (₹)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="1"
+                        value={Number((parsed.draft.paymentSplit.upiPaise / 100).toFixed(2))}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          const nextUpi = Number.isFinite(val) && val >= 0 ? rupeesToPaise(val) : 0;
+                          applyPaymentSplit(parsed.draft.paymentSplit.cashPaise, nextUpi);
+                        }}
+                        className="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-semibold"
+                      />
+                    </label>
+                    <label className="block text-xs">
+                      <span className="font-medium text-slate-600">Udhaar Due Date</span>
+                      <input
+                        type="date"
+                        value={activeCart.dueDateIso}
+                        onChange={(e) =>
+                          updateActiveCart((prev) => ({
+                            ...prev,
+                            dueDateIso: e.target.value || getMonthEndIsoDate()
+                          }))
+                        }
+                        className="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {[50, 100, 200, 500].map((amt) => (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() =>
+                            applyPaymentSplit(
+                              parsed.draft.paymentSplit.cashPaise + rupeesToPaise(amt),
+                              parsed.draft.paymentSplit.upiPaise
+                            )
+                          }
+                          className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                        >
+                          +₹{amt} Cash
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => applyPaymentSplit(0, 0)}
+                        className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-100"
+                      >
+                        Reset Paid
+                      </button>
+                    </div>
+                    {parsed.draft.paymentSplit.cashPaise + parsed.draft.paymentSplit.upiPaise >
+                    parsed.subtotalPaise ? (
+                      <span className="text-xs font-semibold text-emerald-700">
+                        Change / Excess: ₹
+                        {formatPaiseAsRupees(
+                          parsed.draft.paymentSplit.cashPaise +
+                            parsed.draft.paymentSplit.upiPaise -
+                            parsed.subtotalPaise
+                        )}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
 
               {parsed.warnings.length > 0 ? (
                 <ul className="space-y-1 text-xs text-amber-800">

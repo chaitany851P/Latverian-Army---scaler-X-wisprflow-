@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
-import { getMessages } from "next-intl/server";
 import type { ReactNode } from "react";
+import { enMessages } from "../messages/en";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,13 +9,11 @@ export const metadata: Metadata = {
   description: "Multilingual voice bookkeeping, khata, and inventory copilot for Indian retailers"
 };
 
-export default async function RootLayout({ children }: { children: ReactNode }) {
-  const messages = await getMessages();
-
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased" suppressHydrationWarning>
-        <NextIntlClientProvider messages={messages}>
+        <NextIntlClientProvider locale="en" messages={enMessages}>
           {children}
         </NextIntlClientProvider>
       </body>

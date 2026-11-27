@@ -157,6 +157,12 @@ export function BillPreviewDialog({ bill, onClose, onSaveOffline }: BillPreviewD
               </span>
               <span>₹{formatPaiseAsRupees(bill.netRemainingPaise)}</span>
             </div>
+            {bill.changeReturnPaise > 0 ? (
+              <div className="flex justify-between font-semibold text-emerald-700">
+                <span>Change / Advance Credit</span>
+                <span>₹{formatPaiseAsRupees(bill.changeReturnPaise)}</span>
+              </div>
+            ) : null}
           </div>
 
           {qrUrl ? (

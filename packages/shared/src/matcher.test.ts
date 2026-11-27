@@ -78,6 +78,14 @@ describe("Multilingual Hinglish & Indic parser + Fuse.js matcher", () => {
     const tea = parseSandboxUtterance("1 pack chai patti", "kirana");
     expect(tea.draft.intent).toBe("SALE");
     expect(tea.draft.items[0]?.skuId).toBe("SKU_TEA");
+
+    const guSplit = parseSandboxUtterance("રમેશ 2 કિલો ચણા દાળ 100 રૂપિયા આપ્યા બાકી ખાતામાં", "kirana");
+    expect(guSplit.draft.paymentSplit.cashPaise).toBe(10000);
+    expect(guSplit.draft.paymentSplit.udhaarPaise).toBe(9200);
+
+    const paymentOnly = parseSandboxUtterance("રમેશ ના 200 જમા", "kirana");
+    expect(paymentOnly.draft.intent).toBe("PAYMENT");
+    expect(paymentOnly.draft.paymentSplit.cashPaise).toBe(20000);
   });
 
   it("handles empty transcript gracefully without throwing", () => {
