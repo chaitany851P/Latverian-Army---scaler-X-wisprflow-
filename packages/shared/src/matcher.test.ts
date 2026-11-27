@@ -1,8 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { fuzzyMatchSkus, parseSandboxUtterance } from "./matcher.js";
 
-describe("Hinglish sandbox parser & Fuse.js matcher", () => {
-  it("parses code-mixed sale with split payment and ambiguous Ramesh candidates", () => {
+describe("Multilingual Hinglish & Indic parser + Fuse.js matcher", () => {
+  it("parses Hindi Devanagari utterance with spoken inline price and khata udhaar", () => {
+    const res = parseSandboxUtterance("रमेश भाई के खाते में 2 किलो खान 20 रुपए किलो", "kirana");
+
+    expect(res.draft.intent).toBe("SALE");
+    expect(res.draft.items[0]?.skuId).toBe("SKU_SUGAR");
+    expect(res.draft.items[0]?.quantityBase).toBe(2000);
+    expect(res.draft.items[0]?.unitPricePaise).toBe(2000); // overridden ₹20/kg
+    expect(res.subtotalPaise).toBe(4000); // ₹40.00
+    expect(res.draft.paymentSplit.udhaarPaise).toBe(4000);
+    expect(res.draft.ambiguousFields).toContain("customerId");
+  });
+
+  it("parses Gujarati, Punjabi, Tamil, Telugu, and Malayalam scripts uniformly", () => {
+    const gu = parseSandboxUtterance("રમેશ 2 કિલો ખાંડ 20 રૂપિયા કિલો", "kirana");
+    expect(gu.draft.items[0]?.skuId).toBe("SKU_SUGAR");
+    expect(gu.subtotalPaise).toBe(4000);
+
+    const ta = parseSandboxUtterance("ரமேஷ் 2 கிலோ அரிசி", "kirana");
+    expect(ta.draft.items[0]?.skuId).toBe("SKU_BASMATI_RICE");
+    expect(ta.subtotalPaise).toBe(18000);
+
+    const te = parseSandboxUtterance("రమేష్ 2 కిలో బియ్యం", "kirana");
+    expect(te.draft.items[0]?.skuId).toBe("SKU_BASMATI_RICE");
+
+    const ml = parseSandboxUtterance("രമേശ് 2 കിലോ അരി", "kirana");
+    expect(ml.draft.items[0]?.skuId).toBe("SKU_BASMATI_RICE");
+  });
+
+  it("parses code-mixed Latin sale with split payment and ambiguous Ramesh candidates", () => {
     const res = parseSandboxUtterance(
       "Ramesh ko 2 kilo chawal, 1 litre doodh, 100 rupaye jama, baaki mahine ke end mein",
       "kirana"
@@ -11,7 +39,7 @@ describe("Hinglish sandbox parser & Fuse.js matcher", () => {
     expect(res.draft.intent).toBe("SALE");
     expect(res.draft.items.length).toBeGreaterThanOrEqual(2);
     expect(res.draft.paymentSplit.cashPaise).toBe(10000);
-    expect(res.draft.paymentSplit.udhaarPaise).toBe(13400); // (2*90 + 54) = 234 - 100 = 134
+    expect(res.draft.paymentSplit.udhaarPaise).toBe(13400);
     expect(res.draft.ambiguousFields).toContain("customerId");
     expect(res.candidateCustomers.length).toBe(2);
   });

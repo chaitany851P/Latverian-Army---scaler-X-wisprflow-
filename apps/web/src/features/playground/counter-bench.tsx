@@ -9,7 +9,7 @@ import {
   type SeedCustomer,
   type StorePreset
 } from "@voicekhata/shared";
-import { AlertTriangle, CheckCircle2, Database, ExternalLink, Mic, MicOff, Plus, QrCode, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, ExternalLink, Languages, Mic, MicOff, Plus, QrCode, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/button";
@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/ta
 import { offlineCounterDb, type OfflinePendingDraft } from "../../lib/offline-db";
 import { getSpeechRecognitionConstructor, type BrowserSpeechRecognition } from "../../lib/speech";
 import { generateUpiQrDataUrl } from "../../lib/upi-qr";
+import { getLocaleConfig, SUPPORTED_LOCALES, type AppLocale } from "../../messages/translations";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:4000";
 
@@ -37,8 +38,8 @@ const PRESET_LABELS: Record<StorePreset, string> = {
 };
 
 const SAMPLE_UTTERANCES = [
+  "रमेश भाई के खाते में 2 किलो खान 20 रुपए किलो",
   "Ramesh ko 2 kilo chawal, 1 litre doodh, 100 rupaye jama, baaki mahine ke end mein",
-  "dedh kilo chawal aur pao toor dal",
   "200 rupaye chai aur transport kharcha",
   "Nahi 2 nahi 1 kilo"
 ];
@@ -54,6 +55,9 @@ interface HoldCartState {
 
 export function CounterBench() {
   const t = useTranslations("app");
+  const [locale, setLocale] = useState<AppLocale>("hi");
+  const localeCfg = getLocaleConfig(locale);
+
   const [preset, setPreset] = useState<StorePreset>("kirana");
   const [carts, setCarts] = useState<HoldCartState[]>(() => {
     const initialSample = SAMPLE_UTTERANCES[0] ?? "";
@@ -73,7 +77,6 @@ export function CounterBench() {
     ];
   });
   const [activeCartId, setActiveCartId] = useState("cart-1");
-  const [speechLang, setSpeechLang] = useState<"hi-IN" | "en-IN">("hi-IN");
   const [isListening, setIsListening] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const [speechStatus, setSpeechStatus] = useState<string | null>(null);
@@ -211,7 +214,7 @@ export function CounterBench() {
     }
 
     const rec = new SpeechCtor();
-    rec.lang = speechLang;
+    rec.lang = localeCfg.speechLang;
     rec.interimResults = true;
     rec.continuous = false;
     rec.onresult = (event) => {
@@ -305,9 +308,27 @@ export function CounterBench() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">{t("title")}</h1>
-          <p className="text-sm text-slate-600">{t("subtitle")}</p>
+          <p className="text-sm text-slate-600">{localeCfg.ui.subtitle}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-2.5 h-10">
+            <Languages className="h-4 w-4 text-slate-600" />
+            <select
+              aria-label="App and voice language"
+              value={locale}
+              onChange={(e) => {
+                const next = e.target.value as AppLocale;
+                setLocale(next);
+              }}
+              className="bg-transparent text-sm font-medium focus:outline-none"
+            >
+              {SUPPORTED_LOCALES.map((loc) => (
+                <option key={loc.code} value={loc.code}>
+                  {loc.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <select
             aria-label="Store preset"
             value={preset}
@@ -339,9 +360,11 @@ export function CounterBench() {
 
       <Tabs defaultValue="counter" className="w-full">
         <TabsList>
-          <TabsTrigger value="counter">Counter Voice Bench</TabsTrigger>
-          <TabsTrigger value="offline">Offline Queue ({offlineDrafts.length})</TabsTrigger>
-          <TabsTrigger value="catalog">Catalog &amp; API Status</TabsTrigger>
+          <TabsTrigger value="counter">{localeCfg.ui.counterTab}</TabsTrigger>
+          <TabsTrigger value="offline">
+            {localeCfg.ui.offlineTab} ({offlineDrafts.length})
+          </TabsTrigger>
+          <TabsTrigger value="catalog">{localeCfg.ui.catalogTab}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="counter" className="space-y-4">
@@ -361,7 +384,7 @@ export function CounterBench() {
               </button>
             ))}
             <Button variant="outline" size="sm" onClick={handleHoldNewCart}>
-              <Plus className="h-4 w-4" /> Hold New Cart
+              <Plus className="h-4 w-4" /> {localeCfg.ui.holdCartBtn}
             </Button>
           </div>
 
@@ -375,17 +398,11 @@ export function CounterBench() {
                   onClick={() => void toggleMic()}
                 >
                   {isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-                  {isListening ? "Stop Listening" : "Speak (Mic)"}
+                  {isListening ? localeCfg.ui.stopBtn : localeCfg.ui.speakBtn}
                 </Button>
-                <select
-                  aria-label="Speech language"
-                  value={speechLang}
-                  onChange={(e) => setSpeechLang(e.target.value as "hi-IN" | "en-IN")}
-                  className="h-12 rounded-xl border border-slate-300 bg-white px-3 text-sm"
-                >
-                  <option value="hi-IN">Hindi / Hinglish</option>
-                  <option value="en-IN">English (India)</option>
-                </select>
+                <span className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700">
+                  Mic: {localeCfg.speechLang}
+                </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <span>Noise / RMS</span>
@@ -408,12 +425,19 @@ export function CounterBench() {
               onChange={(e) =>
                 updateActiveCart((prev) => ({ ...prev, transcript: e.target.value }))
               }
-              placeholder={t("micPrompt")}
+              placeholder={localeCfg.ui.placeholder}
               className="w-full rounded-xl border border-slate-300 p-3 text-base focus:border-emerald-600 focus:outline-none"
             />
 
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void runParse(localeCfg.sampleUtterance, preset)}
+                  className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                >
+                  Test {localeCfg.code.toUpperCase()} Sample
+                </button>
                 {SAMPLE_UTTERANCES.map((sample, idx) => (
                   <button
                     key={sample}
@@ -430,7 +454,7 @@ export function CounterBench() {
                 disabled={isParsing}
                 onClick={() => void runParse(activeCart.transcript, preset)}
               >
-                {isParsing ? "Parsing..." : "Parse Draft"}
+                {isParsing ? "Parsing..." : localeCfg.ui.parseBtn}
               </Button>
             </div>
           </section>
@@ -459,6 +483,16 @@ export function CounterBench() {
                 <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
                   Engine: {activeCart.source === "api" ? "Fastify API Live" : "Browser Fuse.js Engine"}
                 </span>
+              </div>
+
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-700 space-y-1">
+                <p>
+                  <span className="font-semibold">{localeCfg.ui.translatedLabel}:</span>{" "}
+                  {parsed.englishSummary}
+                </p>
+                {parsed.normalizedTranscript ? (
+                  <p className="text-slate-500">Phonetic: {parsed.normalizedTranscript}</p>
+                ) : null}
               </div>
 
               {parsed.candidateCustomers.length > 0 ? (
@@ -494,7 +528,7 @@ export function CounterBench() {
                       <div>
                         <span className="font-medium text-slate-900">{item.canonicalName}</span>
                         <span className="ml-2 text-xs text-slate-500">
-                          {item.quantityBase} {item.unitLabel === "kg" || item.unitLabel === "g" ? "base g" : item.unitLabel}
+                          {item.quantityBase} {item.unitLabel === "kg" || item.unitLabel === "g" ? "base g" : item.unitLabel} @ ₹{formatPaiseAsRupees(item.unitPricePaise)}
                         </span>
                       </div>
                       <span className="font-semibold">₹{formatPaiseAsRupees(item.lineTotalPaise)}</span>
@@ -505,21 +539,21 @@ export function CounterBench() {
 
               <div className="grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 text-sm sm:grid-cols-4">
                 <div>
-                  <p className="text-xs text-slate-500">Total (MRP Incl.)</p>
+                  <p className="text-xs text-slate-500">{localeCfg.ui.totalLabel}</p>
                   <p className="font-bold">₹{formatPaiseAsRupees(parsed.subtotalPaise)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500">Included GST</p>
+                  <p className="text-xs text-slate-500">{localeCfg.ui.gstLabel}</p>
                   <p className="font-semibold">₹{formatPaiseAsRupees(parsed.taxPaise)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500">Cash / UPI Paid</p>
+                  <p className="text-xs text-slate-500">{localeCfg.ui.paidLabel}</p>
                   <p className="font-semibold text-emerald-700">
                     ₹{formatPaiseAsRupees(parsed.draft.paymentSplit.cashPaise + parsed.draft.paymentSplit.upiPaise)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500">Udhaar Remaining</p>
+                  <p className="text-xs text-slate-500">{localeCfg.ui.udhaarLabel}</p>
                   <p className="font-semibold text-amber-700">
                     ₹{formatPaiseAsRupees(parsed.draft.paymentSplit.udhaarPaise)}
                   </p>
@@ -536,12 +570,12 @@ export function CounterBench() {
 
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={() => void handleSaveOfflineDraft()}>
-                  <Database className="h-4 w-4" /> Save to Offline Queue (Dexie)
+                  <Database className="h-4 w-4" /> {localeCfg.ui.saveOfflineBtn}
                 </Button>
                 <Dialog>
                   <DialogTrigger asChild>
                     <Button type="button" variant="outline" onClick={() => void handleGenerateQr()}>
-                      <QrCode className="h-4 w-4" /> Show UPI QR
+                      <QrCode className="h-4 w-4" /> {localeCfg.ui.showQrBtn}
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
@@ -578,7 +612,7 @@ export function CounterBench() {
             </div>
             {offlineDrafts.length === 0 ? (
               <p className="mt-3 text-sm text-slate-500">
-                No offline drafts saved yet. Click &quot;Save to Offline Queue (Dexie)&quot; on the Counter tab to test persistence across refreshes.
+                No offline drafts saved yet. Click Save to Offline Queue on the Counter tab to test persistence across refreshes.
               </p>
             ) : (
               <ul className="mt-3 divide-y divide-slate-100">

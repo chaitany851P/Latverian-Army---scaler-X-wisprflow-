@@ -62,6 +62,23 @@ describe("API health, OpenAPI playground, and voice sandbox endpoints", () => {
     const body = ok.json() as { draft: unknown };
     expect(TransactionDraftSchema.safeParse(body.draft).success).toBe(true);
 
+    const hindi = await app.inject({
+      method: "POST",
+      url: "/api/v1/sandbox/parse",
+      payload: {
+        transcript: "रमेश भाई के खाते में 2 किलो खान 20 रुपए किलो",
+        preset: "kirana"
+      }
+    });
+    expect(hindi.statusCode).toBe(200);
+    const hindiJson = hindi.json() as {
+      subtotalPaise: number;
+      draft: { paymentSplit: { udhaarPaise: number }; items: Array<{ skuId: string }> };
+    };
+    expect(hindiJson.draft.items[0]?.skuId).toBe("SKU_SUGAR");
+    expect(hindiJson.subtotalPaise).toBe(4000);
+    expect(hindiJson.draft.paymentSplit.udhaarPaise).toBe(4000);
+
     const bad = await app.inject({
       method: "POST",
       url: "/api/v1/sandbox/parse",
