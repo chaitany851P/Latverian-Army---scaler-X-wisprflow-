@@ -809,7 +809,10 @@ export function CounterBench() {
                 </div>
               </div>
 
-              {parsed.draft.intent === "SALE" || parsed.draft.intent === "PAYMENT" ? (
+              {parsed.draft.intent === "SALE" ||
+              parsed.draft.intent === "PAYMENT" ||
+              (parsed.draft.intent === "CORRECTION" &&
+                (parsed.draft.items.length > 0 || parsed.subtotalPaise > 0)) ? (
                 <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-semibold text-slate-700">

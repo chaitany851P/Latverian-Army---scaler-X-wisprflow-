@@ -35,6 +35,7 @@ Voice-first multilingual bookkeeping, *khata* ledger, and inventory copilot for 
 * Docker Compose runtime execution not verified on this Windows host yet (Docker Desktop not installed locally)
 
 ## Recent Changes
+* **2026-11-27:** Completed `/qa-release` verification & fixes: kept Payment Split visible on active `CORRECTION` drafts, preserved customer-ambiguity and `RED`-tier warnings during corrections, guarded explicit zero/negative quantities (`0 kilo`, `-5 kilo`) against fallback hallucination, and added `apps/web/src/app/icon.svg`.
 * **2026-11-27:** Fixed 6 counter/parser/health bugs: stateful `CORRECTION` patching via `activeResult`, customer disambiguation syncing `draft.customerId`/`customerName`/`ambiguousFields`/`englishSummary` and RED credit warning, spoken numbers > 5 (`chhe`–`sau`) plus unnumbered items after `aur`, decimal `step="0.01"` paise inputs with live `englishSummary` refresh, Dexie `version(3)` hold-cart workspace persistence (`holdCarts`), and Postgres `SELECT 1` readiness check (`503 degraded`) on `/healthz`.
 * **2026-11-27:** Added interactive Payment Split controls (`Full Cash` / `Full UPI` / `Full Udhaar` / partial `Cash + UPI + Due Date`), regional paid-verb recognition + `PAYMENT` settlement intent, and synchronous `RootLayout`.
 * **2026-11-27:** Added Bill Generation preview (`BillPreviewDialog` with previous *udhaar* separation, UPI QR, receipt copy, and print) and upgraded Dexie offline queue (`version(2)`) to persist & display itemized contents, totals, `View Bill`, and `Load to Counter`.
