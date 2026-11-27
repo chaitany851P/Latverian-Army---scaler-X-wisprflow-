@@ -145,4 +145,17 @@ describe("Multilingual Hinglish & Indic parser + Fuse.js matcher", () => {
     expect(sixPacks.draft.items[0]?.quantityBase).toBe(6);
     expect(sixPacks.subtotalPaise).toBe(9000);
   });
+
+  it("rejects zero/negative quantities cleanly and preserves customer warnings across CORRECTION", () => {
+    const zeroQty = parseSandboxUtterance("0 kilo chawal", "kirana");
+    expect(zeroQty.draft.items.length).toBe(0);
+    expect(zeroQty.draft.ambiguousFields).toContain("items");
+
+    const negQty = parseSandboxUtterance("-5 kilo chawal", "kirana");
+    expect(negQty.draft.items.length).toBe(0);
+
+    const base = parseSandboxUtterance("रमेश भाई के खाते में 2 किलो खान 20 रुपए किलो", "kirana");
+    const corrected = parseSandboxUtterance("Nahi 2 nahi 1 kilo", "kirana", base);
+    expect(corrected.warnings.some((w) => w.startsWith("Multiple customers matched"))).toBe(true);
+  });
 });

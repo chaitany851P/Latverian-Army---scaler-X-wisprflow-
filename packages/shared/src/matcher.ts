@@ -304,6 +304,24 @@ function applyCorrectionToActiveResult(
     ambiguousFields.push("items");
   }
 
+  if (!activeResult.draft.customerId && activeResult.candidateCustomers.length > 1) {
+    if (!ambiguousFields.includes("customerId")) {
+      ambiguousFields.push("customerId");
+    }
+    warnings.push(
+      `Multiple customers matched (${activeResult.candidateCustomers.map((c) => c.displayName).join(" vs ")})`
+    );
+  }
+
+  const resolvedCustomer = activeResult.draft.customerId
+    ? activeResult.candidateCustomers.find((c) => c.customerId === activeResult.draft.customerId)
+    : activeResult.candidateCustomers.length === 1
+      ? activeResult.candidateCustomers[0]
+      : undefined;
+  if (resolvedCustomer && resolvedCustomer.riskTier === "RED" && nextUdhaar > 0) {
+    warnings.push(`Credit warning: ${resolvedCustomer.displayName} is RED tier (overdue balance).`);
+  }
+
   const patchedDraft: TransactionDraft = {
     intent: "CORRECTION",
     rawTranscript,
@@ -464,14 +482,20 @@ export function parseSandboxUtterance(
 
   for (const clause of clauses) {
     let clauseMatched = false;
+    let hasNonPositiveExplicitQty = false;
     for (const match of clause.matchAll(itemWithOptionalPriceRegex)) {
-      const rawQty = Number(match[1]);
+      const matchIndex = match.index ?? 0;
+      const hasUnaryMinus = matchIndex > 0 && clause[matchIndex - 1] === "-";
+      const rawQty = hasUnaryMinus ? -Number(match[1]) : Number(match[1]);
       const rawPhrase = (match[2] ?? "").trim();
       const spokenPriceRupees = match[3] ? Number(match[3]) : null;
 
+      if (!Number.isFinite(rawQty) || rawQty <= 0) {
+        hasNonPositiveExplicitQty = true;
+        continue;
+      }
+
       if (
-        !Number.isFinite(rawQty) ||
-        rawQty <= 0 ||
         /^(rupaye|rupay|rupai|rupe|rs|jama|cash|upi|baaki|baki|mahine|khate|khata|udhar|udhaar)/i.test(
           rawPhrase
         )
@@ -537,7 +561,7 @@ export function parseSandboxUtterance(
       `^\\d+(?:\\.\\d+)?\\s*(?:${CURRENCY_PATTERN}|${paidOrUpiLookahead})\\b`,
       "i"
     ).test(clause);
-    if (!clauseMatched && !isPurePaymentClause) {
+    if (!clauseMatched && !hasNonPositiveExplicitQty && !isPurePaymentClause) {
       const sortedAliases = catalog
         .flatMap((sku) => sku.aliases.map((alias) => ({ sku, alias })))
         .sort((a, b) => b.alias.length - a.alias.length);
