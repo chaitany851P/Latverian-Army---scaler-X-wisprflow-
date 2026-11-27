@@ -87,6 +87,61 @@ describe("API health, OpenAPI playground, and voice sandbox endpoints", () => {
     expect(bad.statusCode).toBe(400);
   });
 
+  it("POST /api/v1/sandbox/parse supports in-place CORRECTION when activeResult is provided", async () => {
+    const app = await appPromise;
+    const initial = await app.inject({
+      method: "POST",
+      url: "/api/v1/sandbox/parse",
+      payload: {
+        transcript: "रमेश भाई के खाते में 2 किलो खान 20 रुपए किलो",
+        preset: "kirana"
+      }
+    });
+    expect(initial.statusCode).toBe(200);
+    const activeResult = initial.json();
+
+    const corrected = await app.inject({
+      method: "POST",
+      url: "/api/v1/sandbox/parse",
+      payload: {
+        transcript: "Nahi 2 nahi 1 kilo",
+        preset: "kirana",
+        activeResult
+      }
+    });
+    expect(corrected.statusCode).toBe(200);
+    const body = corrected.json() as {
+      subtotalPaise: number;
+      draft: { intent: string; items: Array<{ skuId: string; quantityBase: number }> };
+    };
+    expect(body.draft.intent).toBe("CORRECTION");
+    expect(body.draft.items[0]?.skuId).toBe("SKU_SUGAR");
+    expect(body.draft.items[0]?.quantityBase).toBe(1000);
+    expect(body.subtotalPaise).toBe(2000);
+  });
+
+  it("GET /healthz returns 503 degraded when DATABASE_URL is unreachable", async () => {
+    const previousDbUrl = process.env["DATABASE_URL"];
+    process.env["DATABASE_URL"] = "postgresql://voicekhata:bad@127.0.0.1:1/voicekhata";
+    const failingApp = await buildApp({ allowedOrigin: "http://localhost:3000" });
+    try {
+      const response = await failingApp.inject({ method: "GET", url: "/healthz" });
+      expect(response.statusCode).toBe(503);
+      const parsed = HealthResponseSchema.safeParse(response.json());
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.status).toBe("degraded");
+      }
+    } finally {
+      await failingApp.close();
+      if (previousDbUrl === undefined) {
+        delete process.env["DATABASE_URL"];
+      } else {
+        process.env["DATABASE_URL"] = previousDbUrl;
+      }
+    }
+  });
+
   it("returns 404 for unknown routes", async () => {
     const app = await appPromise;
     const response = await app.inject({ method: "GET", url: "/api/v1/nonexistent" });
