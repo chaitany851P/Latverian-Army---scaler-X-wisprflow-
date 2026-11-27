@@ -111,6 +111,11 @@ function buildEnglishSummary(draft: TransactionDraft, subtotalPaise: number): st
   if (draft.intent === "EXPENSE") {
     return `Drawer Cash Expense: ₹${formatPaiseAsRupees(draft.paymentSplit.cashPaise)}`;
   }
+  if (draft.intent === "PAYMENT") {
+    const paid = draft.paymentSplit.cashPaise + draft.paymentSplit.upiPaise;
+    const party = draft.customerName ? ` from ${draft.customerName}` : "";
+    return `Udhaar Settlement${party}: ₹${formatPaiseAsRupees(paid)} received`;
+  }
   if (draft.intent === "CORRECTION") {
     return "Draft Edit: Update or remove items in active cart";
   }
@@ -121,7 +126,7 @@ function buildEnglishSummary(draft: TransactionDraft, subtotalPaise: number): st
     .map((i) => `${i.canonicalName} (${i.quantityBase} ${i.unitLabel === "kg" ? "g" : i.unitLabel})`)
     .join(", ");
   const party = draft.customerName ? ` for ${draft.customerName}` : "";
-  return `Bill${party}: ${itemsStr} | Total ₹${formatPaiseAsRupees(subtotalPaise)} (Udhaar ₹${formatPaiseAsRupees(draft.paymentSplit.udhaarPaise)})`;
+  return `Bill${party}: ${itemsStr} | Total ₹${formatPaiseAsRupees(subtotalPaise)} (Paid ₹${formatPaiseAsRupees(draft.paymentSplit.cashPaise + draft.paymentSplit.upiPaise)}, Udhaar ₹${formatPaiseAsRupees(draft.paymentSplit.udhaarPaise)})`;
 }
 
 /**
@@ -226,8 +231,10 @@ export function parseSandboxUtterance(
     .map((c) => c.trim())
     .filter(Boolean);
 
+  const paidOrUpiLookahead =
+    "(?:cash|jama|diya|diye|de\\s+diya|mila|mile|nakad|nagaad|rokda|rokada|apya|aapya|didha|aavya|dile|dila|ditta|ditte|kuduthen|kodutha|icharu|koduthu|paid|upi|gpay|phonepe|paytm|online)";
   const itemWithOptionalPriceRegex = new RegExp(
-    `(\\d+(?:\\.\\d+)?)\\s*${UNIT_PATTERN}?\\s+([a-z]+(?:\\s+[a-z]+)?)(?:\\s+(\\d+(?:\\.\\d+)?)\\s*${CURRENCY_PATTERN}(?:\\s+${UNIT_PATTERN})?)?`,
+    `(\\d+(?:\\.\\d+)?)\\s*${UNIT_PATTERN}?\\s+([a-z]+(?:\\s+[a-z]+)?)(?:\\s+(\\d+(?:\\.\\d+)?)\\s*${CURRENCY_PATTERN}(?!\\s+${paidOrUpiLookahead}\\b)(?:\\s+${UNIT_PATTERN})?)?`,
     "gi"
   );
 
@@ -324,16 +331,46 @@ export function parseSandboxUtterance(
     return sum + splitMrpInclusiveTax(item.lineTotalPaise, gst).taxPaise;
   }, 0);
 
-  // 5. Parse payment split (Cash / UPI / Udhaar or Khata)
-  const upiMatch = normalized.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(?:${CURRENCY_PATTERN}\\s*)?upi\\b`, "i"));
+  // 5. Parse payment split (Cash / UPI / Udhaar or Khata) across Hindi, Gujarati, Marathi, Punjabi, South Indian terms
+  const paidVerbs =
+    "(?:cash|jama|diya|diye|de\\s+diya|mila|mile|nakad|nagaad|rokda|rokada|apya|aapya|didha|aavya|dile|dila|ditta|ditte|kuduthen|kodutha|icharu|koduthu|paid)";
+  const upiVerbs = "(?:upi|gpay|phonepe|paytm|online)";
+  const upiMatch = normalized.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(?:${CURRENCY_PATTERN}\\s*)?${upiVerbs}\\b`, "i"));
   const cashMatch = normalized.match(
-    new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(?:${CURRENCY_PATTERN}\\s*)?(?:cash|jama|diya|nakad|rokda|dile)\\b`, "i")
+    new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(?:${CURRENCY_PATTERN}\\s*)?${paidVerbs}\\b`, "i")
   );
   const upiPaise = upiMatch ? rupeesToPaise(Number(upiMatch[1])) : 0;
   let cashPaise = cashMatch ? rupeesToPaise(Number(cashMatch[1])) : 0;
 
   const paidPaise = cashPaise + upiPaise;
   const hasCreditKeyword = /\b(baaki|baki|udhaar|udhar|khata\w*|khate\w*|khatu\w*|credit)\b/i.test(normalized);
+  const matchedCustomer = uniqueCustomers.length === 1 ? uniqueCustomers[0] : undefined;
+
+  // Handle pure udhaar settlement payment (e.g. "Ramesh ne 200 rupaye jama kiye" with 0 items)
+  if (items.length === 0 && paidPaise > 0) {
+    const paymentDraft: TransactionDraft = {
+      intent: "PAYMENT",
+      rawTranscript: trimmed,
+      ...(matchedCustomer ? { customerId: matchedCustomer.customerId, customerName: matchedCustomer.displayName } : {}),
+      items: [],
+      paymentSplit: { cashPaise, upiPaise, udhaarPaise: 0 },
+      needsConfirmation: true,
+      ambiguousFields: uniqueCustomers.length > 1 ? ["customerId"] : []
+    };
+    return {
+      draft: paymentDraft,
+      normalizedTranscript: normalized,
+      englishSummary: buildEnglishSummary(paymentDraft, paidPaise),
+      subtotalPaise: paidPaise,
+      taxPaise: 0,
+      candidateCustomers: uniqueCustomers,
+      candidateSkus,
+      warnings:
+        uniqueCustomers.length > 1
+          ? [`Multiple customers matched (${uniqueCustomers.map((c) => c.displayName).join(" vs ")})`]
+          : []
+    };
+  }
 
   let udhaarPaise = 0;
   if (paidPaise > 0) {
@@ -354,7 +391,6 @@ export function parseSandboxUtterance(
     warnings.push("No catalog SKU matched; select an item or include spoken price.");
   }
 
-  const matchedCustomer = uniqueCustomers.length === 1 ? uniqueCustomers[0] : undefined;
   if (matchedCustomer && matchedCustomer.riskTier === "RED" && udhaarPaise > 0) {
     warnings.push(`Credit warning: ${matchedCustomer.displayName} is RED tier (overdue balance).`);
   }

@@ -45,4 +45,26 @@ describe("bill generation & ledger separation math", () => {
     expect(bill.paidNowPaise).toBe(10000);
     expect(bill.netRemainingPaise).toBe(13000);
   });
+
+  it("handles pure PAYMENT settlement without adding payment to bill total", () => {
+    const parsed = parseSandboxUtterance("રમેશ ના 200 જમા", "kirana");
+    const bill = buildGeneratedBill({
+      billNumber: "VK-TEST-1003",
+      issuedAtIso: "2026-11-27T12:00:00.000Z",
+      dueDateIso: "2026-12-05",
+      preset: "kirana",
+      customerName: "Ramesh (Gali-3)",
+      previousBalancePaise: 50000,
+      subtotalPaise: parsed.subtotalPaise,
+      taxPaise: parsed.taxPaise,
+      englishSummary: parsed.englishSummary,
+      draft: parsed.draft
+    });
+
+    expect(bill.currentBillPaise).toBe(0);
+    expect(bill.totalPayablePaise).toBe(50000);
+    expect(bill.paidNowPaise).toBe(20000);
+    expect(bill.netRemainingPaise).toBe(30000);
+    expect(bill.dueDateIso).toBe("2026-12-05");
+  });
 });

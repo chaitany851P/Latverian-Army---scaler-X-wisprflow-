@@ -4,9 +4,11 @@ export interface GeneratedBill {
   billNumber: string;
   issuedAtIso: string;
   issuedAtLabel: string;
+  dueDateIso: string;
   dueDateLabel: string;
   preset: StorePreset;
   customerName: string;
+  intent: TransactionDraft["intent"];
   currentBillPaise: number;
   taxPaise: number;
   previousBalancePaise: number;
@@ -15,6 +17,7 @@ export interface GeneratedBill {
   upiPaidPaise: number;
   paidNowPaise: number;
   netRemainingPaise: number;
+  changeReturnPaise: number;
   items: TransactionDraft["items"];
   rawTranscript: string;
   englishSummary: string;
@@ -29,9 +32,20 @@ export function createBillNumber(date = new Date()): string {
   return `VK-${y}${m}${d}-${rand}`;
 }
 
-export function getMonthEndDueDateLabel(date = new Date()): string {
+export function getMonthEndIsoDate(date = new Date()): string {
   const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-  return endOfMonth.toLocaleDateString("en-IN", {
+  const yyyy = endOfMonth.getFullYear();
+  const mm = String(endOfMonth.getMonth() + 1).padStart(2, "0");
+  const dd = String(endOfMonth.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+export function formatDueDateLabel(dueDateIso: string): string {
+  const parsed = new Date(`${dueDateIso}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return dueDateIso;
+  }
+  return parsed.toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric"
@@ -41,6 +55,7 @@ export function getMonthEndDueDateLabel(date = new Date()): string {
 export function buildGeneratedBill(params: {
   billNumber?: string;
   issuedAtIso?: string;
+  dueDateIso?: string;
   preset: StorePreset;
   customerName?: string;
   previousBalancePaise?: number;
@@ -52,13 +67,15 @@ export function buildGeneratedBill(params: {
   const issuedDate = params.issuedAtIso ? new Date(params.issuedAtIso) : new Date();
   const billNumber = params.billNumber ?? createBillNumber(issuedDate);
   const previousBalancePaise = Math.max(0, params.previousBalancePaise ?? 0);
-  const currentBillPaise = Math.max(0, params.subtotalPaise);
+  const isSettlementOnly = params.draft.intent === "PAYMENT";
+  const currentBillPaise = isSettlementOnly ? 0 : Math.max(0, params.subtotalPaise);
   const totalPayablePaise = currentBillPaise + previousBalancePaise;
 
   const cashPaidPaise = params.draft.paymentSplit.cashPaise;
   const upiPaidPaise = params.draft.paymentSplit.upiPaise;
   const paidNowPaise = cashPaidPaise + upiPaidPaise;
   const netRemainingPaise = Math.max(0, totalPayablePaise - paidNowPaise);
+  const changeReturnPaise = Math.max(0, paidNowPaise - totalPayablePaise);
 
   const issuedAtLabel = issuedDate.toLocaleString("en-IN", {
     day: "2-digit",
@@ -67,7 +84,8 @@ export function buildGeneratedBill(params: {
     hour: "2-digit",
     minute: "2-digit"
   });
-  const dueDateLabel = getMonthEndDueDateLabel(issuedDate);
+  const dueDateIso = params.dueDateIso ?? getMonthEndIsoDate(issuedDate);
+  const dueDateLabel = formatDueDateLabel(dueDateIso);
   const customerName = params.customerName ?? "Walk-in Customer";
 
   const lines: string[] = [
@@ -97,17 +115,23 @@ export function buildGeneratedBill(params: {
     `Included GST: ₹${formatPaiseAsRupees(params.taxPaise)}`,
     `Previous Udhaar: ₹${formatPaiseAsRupees(previousBalancePaise)}`,
     `Total Payable: ₹${formatPaiseAsRupees(totalPayablePaise)}`,
-    `Paid Now (Cash/UPI): ₹${formatPaiseAsRupees(paidNowPaise)}`,
+    `Paid Now (Cash ₹${formatPaiseAsRupees(cashPaidPaise)} + UPI ₹${formatPaiseAsRupees(upiPaidPaise)}): ₹${formatPaiseAsRupees(paidNowPaise)}`,
     `Net Remaining Udhaar: ₹${formatPaiseAsRupees(netRemainingPaise)}${netRemainingPaise > 0 ? ` (Due: ${dueDateLabel})` : ""}`
   );
+
+  if (changeReturnPaise > 0) {
+    lines.push(`Change / Advance Credit: ₹${formatPaiseAsRupees(changeReturnPaise)}`);
+  }
 
   return {
     billNumber,
     issuedAtIso: issuedDate.toISOString(),
     issuedAtLabel,
+    dueDateIso,
     dueDateLabel,
     preset: params.preset,
     customerName,
+    intent: params.draft.intent,
     currentBillPaise,
     taxPaise: params.taxPaise,
     previousBalancePaise,
@@ -116,6 +140,7 @@ export function buildGeneratedBill(params: {
     upiPaidPaise,
     paidNowPaise,
     netRemainingPaise,
+    changeReturnPaise,
     items: params.draft.items,
     rawTranscript: params.draft.rawTranscript,
     englishSummary: params.englishSummary,

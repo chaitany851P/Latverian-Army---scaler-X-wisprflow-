@@ -35,6 +35,7 @@ Voice-first multilingual bookkeeping, *khata* ledger, and inventory copilot for 
 * Docker Compose runtime execution not verified on this Windows host yet (Docker Desktop not installed locally)
 
 ## Recent Changes
+* **2026-11-27:** Added interactive Payment Split controls (`Full Cash` / `Full UPI` / `Full Udhaar` / partial `Cash + UPI + Due Date`), regional paid-verb recognition + `PAYMENT` settlement intent, and synchronous `RootLayout`.
 * **2026-11-27:** Added Bill Generation preview (`BillPreviewDialog` with previous *udhaar* separation, UPI QR, receipt copy, and print) and upgraded Dexie offline queue (`version(2)`) to persist & display itemized contents, totals, `View Bill`, and `Load to Counter`.
 * **2026-11-27:** Tightened `Fuse.js` matcher (`threshold: 0.28`, exact alias priority) to prevent false matches (`chana dal` -> `Basmati Rice`), added `Chana Dal`/`Moong Dal`/`Cooking Oil`/`Tea`/`Potato`, fixed walk-in cash default, added Gujarati `khataman` recognition, and guarded client hydration against browser-extension DOM attributes (`bis_skin_checked`).
 * **2026-11-27:** Added 9-script Unicode Indic transliterator (`packages/shared/src/indic.ts`), inline spoken unit-price overrides, 10-language UI translations (`hi`, `gu`, `mr`, `pa`, `ta`, `te`, `ml`, `bn`, `kn`, `en`), and English translation preview on Draft Cards.
