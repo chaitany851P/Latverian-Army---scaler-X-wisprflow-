@@ -1,3 +1,4 @@
+import type { StorePreset, TransactionDraft } from "@voicekhata/shared";
 import Dexie, { type Table } from "dexie";
 
 export interface OfflinePendingDraft {
@@ -6,6 +7,14 @@ export interface OfflinePendingDraft {
   rawTranscript: string;
   createdAt: string;
   synced: number;
+  preset?: StorePreset;
+  customerName?: string;
+  previousBalancePaise?: number;
+  englishSummary?: string;
+  subtotalPaise?: number;
+  taxPaise?: number;
+  billNumber?: string;
+  draft?: TransactionDraft;
 }
 
 export class OfflineCounterDb extends Dexie {
@@ -15,6 +24,9 @@ export class OfflineCounterDb extends Dexie {
     super("voicekhata_offline");
     this.version(1).stores({
       pendingDrafts: "++id, idempotencyKey, synced, createdAt"
+    });
+    this.version(2).stores({
+      pendingDrafts: "++id, idempotencyKey, synced, createdAt, billNumber"
     });
   }
 }
