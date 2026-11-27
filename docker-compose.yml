@@ -18,6 +18,7 @@ services:
       retries: 10
 
   api:
+    image: voicekhata-api:local
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -36,6 +37,7 @@ services:
       - "127.0.0.1:4000:4000"
 
   worker:
+    image: voicekhata-api:local
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -50,6 +52,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
 
   web:
+    image: voicekhata-web:local
     build:
       context: .
       dockerfile: apps/web/Dockerfile

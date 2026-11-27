@@ -63,7 +63,7 @@ docker compose up --build
 
 ## 4. Verification Gate (Required Before Any PR to `integration` or `main`)
 
-Run in order from the repo root:
+Run in order from the repo root (mirrored in `.github/workflows/ci.yml` and `.github/workflows/docker-verify.yml`):
 ```bash
 npm run lint        # ESLint across all workspaces
 npm run typecheck   # Rebuilds libs + tsc --noEmit across shared, db, api, web

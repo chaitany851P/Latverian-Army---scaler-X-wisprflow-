@@ -1,0 +1,75 @@
+name: Docker Image Verifier
+
+on:
+  pull_request:
+    branches: [main, integration]
+  push:
+    branches: [main, integration, "chore/*", "feature/*", "fix/*", "test/*"]
+  workflow_dispatch:
+
+jobs:
+  docker-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          load: true
+          push: false
+          tags: voicekhata-api:local
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build Web PWA image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          load: true
+          push: false
+          tags: voicekhata-web:local
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://localhost:4000
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Verify non-root container user and image sizes
+        run: |
+          docker images voicekhata-api:local voicekhata-web:local
+          api_user=$(docker run --rm --entrypoint id voicekhata-api:local -un)
+          web_user=$(docker run --rm --entrypoint id voicekhata-web:local -un)
+          test "$api_user" = "node"
+          test "$web_user" = "node"
+
+      - name: Boot full Compose stack and run runtime smoke checks
+        run: |
+          docker compose -f docker-compose.yml up -d --no-build
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4000/healthz && curl -fsS http://127.0.0.1:3000/ >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:4000/healthz | grep -q '"status":"ok"'
+          curl -fsS http://127.0.0.1:4000/api/v1/health | grep -q '"status":"ok"'
+          curl -fsS http://127.0.0.1:3000/ | grep -q 'VoiceKhata'
+          docker compose -f docker-compose.yml exec -T db psql -U voicekhata -d voicekhata -tAc "SELECT extname FROM pg_extension WHERE extname='pg_trgm';" | grep -q 'pg_trgm'
+          sleep 3
+          worker_running=$(docker inspect -f '{{.State.Running}}' "$(docker compose -f docker-compose.yml ps -q worker)")
+          test "$worker_running" = "true"
+
+      - name: Print container logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml logs --tail=100
+
+      - name: Tear down Compose stack
+        if: always()
+        run: docker compose -f docker-compose.yml down -v
