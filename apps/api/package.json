@@ -12,7 +12,9 @@
   "dependencies": {
     "@fastify/cors": "^11.4.3",
     "@fastify/rate-limit": "^11.3.0",
+    "@fastify/swagger": "^9.9.5",
     "@google/genai": "^3.6.1",
+    "@scalar/fastify-api-reference": "^1.85.0",
     "@voicekhata/db": "*",
     "@voicekhata/shared": "*",
     "fastify": "^5.12.8",
