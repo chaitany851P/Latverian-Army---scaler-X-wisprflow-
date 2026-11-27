@@ -11,6 +11,7 @@ Voice-first multilingual bookkeeping, *khata* ledger, and inventory copilot for 
 * **Containerization (`infra/` & root compose):** Multi-stage Node 24 Alpine Dockerfiles, `docker-compose.yml`, `docker-compose.prod.yml`, Caddy 2 reverse proxy (auto-TLS)
 
 ## Directory Structure
+* `plan/` — Team architecture & build specifications (`WORKFLOW.md`, `FEATURES.md`, `DATABASE.md`, `API_AND_VOICE.md`, `UI_UX.md`)
 * `apps/web/` — Counter PWA client, offline IndexedDB queue, UPI QR utility, `next-intl` configuration
 * `apps/api/` — Fastify HTTP API (`/healthz`, `/api/v1/health`), Gemini client factory, `pg-boss` worker stub
 * `packages/shared/` — Shared Zod contracts (`TransactionDraftSchema`, `HealthResponseSchema`) and integer-paise / MRP-inclusive GST helpers
@@ -33,4 +34,5 @@ Voice-first multilingual bookkeeping, *khata* ledger, and inventory copilot for 
 * Docker Compose runtime execution not verified on this Windows host yet (Docker Desktop not installed locally)
 
 ## Recent Changes
+* **2026-11-27:** Added team engineering documentation in `plan/` (`WORKFLOW.md`, `FEATURES.md`, `DATABASE.md`, `API_AND_VOICE.md`, `UI_UX.md`).
 * **2026-11-27:** Scaffolded monorepo layout, Docker/Caddy/CI configs, installed workspace dependencies (`chore/dependencies`), and verified lint, typecheck, unit/API tests, build, and production audit.

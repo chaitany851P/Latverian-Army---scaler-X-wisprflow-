@@ -2,6 +2,10 @@
 
 Voice-first multilingual bookkeeping, *khata* ledger, and inventory copilot for Indian small businesses.
 
+## Team Planning Docs
+
+See [`plan/README.md`](./plan/README.md) for development workflow, database ERD/schema, voice & API contracts, feature cutlines, and UI/UX specs.
+
 ## Workspace Layout
 
 * `apps/web` — Next.js PWA counter client (`Dexie` offline store, `next-intl` i18n, dynamic UPI QR)
