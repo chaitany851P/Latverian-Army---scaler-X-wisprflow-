@@ -13,6 +13,7 @@ export default defineConfig({
     include: [
       "packages/**/*.test.ts",
       "apps/api/**/*.test.ts",
+      "apps/web/**/*.test.ts",
       "tests/integration/**/*.test.ts"
     ]
   }

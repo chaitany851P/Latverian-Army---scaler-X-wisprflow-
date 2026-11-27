@@ -9,11 +9,9 @@ import {
   type SeedCustomer,
   type StorePreset
 } from "@voicekhata/shared";
-import { AlertTriangle, CheckCircle2, Database, ExternalLink, Languages, Mic, MicOff, Plus, QrCode, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, ExternalLink, FileText, Languages, Mic, MicOff, Plus, QrCode, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-
-const emptySubscribe = () => () => {};
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -23,10 +21,14 @@ import {
   DialogTrigger
 } from "../../components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
+import { buildGeneratedBill, type GeneratedBill } from "../../lib/bill";
 import { offlineCounterDb, type OfflinePendingDraft } from "../../lib/offline-db";
 import { getSpeechRecognitionConstructor, type BrowserSpeechRecognition } from "../../lib/speech";
 import { generateUpiQrDataUrl } from "../../lib/upi-qr";
 import { getLocaleConfig, SUPPORTED_LOCALES, type AppLocale } from "../../messages/translations";
+import { BillPreviewDialog } from "./bill-preview-dialog";
+
+const emptySubscribe = () => () => {};
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:4000";
 
@@ -84,11 +86,15 @@ export function CounterBench() {
     ];
   });
   const [activeCartId, setActiveCartId] = useState("cart-1");
+  const [activeTab, setActiveTab] = useState<"counter" | "offline" | "catalog">("counter");
   const [isListening, setIsListening] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const [speechStatus, setSpeechStatus] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [offlineDrafts, setOfflineDrafts] = useState<OfflinePendingDraft[]>([]);
+  const [previewBill, setPreviewBill] = useState<GeneratedBill | null>(null);
+  const [previewIsFromOffline, setPreviewIsFromOffline] = useState(false);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [apiHealth, setApiHealth] = useState<string>("Not checked yet");
 
@@ -264,15 +270,105 @@ export function CounterBench() {
     setActiveCartId(newId);
   };
 
-  const handleSaveOfflineDraft = async () => {
-    if (!activeCart.transcript.trim()) return;
-    await offlineCounterDb.pendingDrafts.add({
+  const handleSaveOfflineDraft = async (billOverride?: GeneratedBill) => {
+    const currentParsed = activeCart.parsed;
+    if (!activeCart.transcript.trim() && !billOverride) return;
+
+    const resolvedCust =
+      activeCart.selectedCustomer ??
+      (currentParsed && currentParsed.candidateCustomers.length === 1
+        ? (currentParsed.candidateCustomers[0] ?? null)
+        : null);
+
+    const record: OfflinePendingDraft = {
       idempotencyKey: crypto.randomUUID(),
-      rawTranscript: activeCart.transcript,
-      createdAt: new Date().toISOString(),
-      synced: 0
-    });
+      rawTranscript: billOverride?.rawTranscript ?? activeCart.transcript,
+      createdAt: billOverride?.issuedAtIso ?? new Date().toISOString(),
+      synced: 0,
+      preset: billOverride?.preset ?? preset,
+      previousBalancePaise: billOverride?.previousBalancePaise ?? resolvedCust?.previousBalancePaise ?? 0,
+      subtotalPaise: billOverride?.currentBillPaise ?? currentParsed?.subtotalPaise ?? 0,
+      taxPaise: billOverride?.taxPaise ?? currentParsed?.taxPaise ?? 0
+    };
+
+    const resolvedName = billOverride?.customerName ?? resolvedCust?.displayName;
+    if (resolvedName) record.customerName = resolvedName;
+
+    const summary = billOverride?.englishSummary ?? currentParsed?.englishSummary;
+    if (summary) record.englishSummary = summary;
+
+    if (billOverride?.billNumber) record.billNumber = billOverride.billNumber;
+    if (currentParsed?.draft) record.draft = currentParsed.draft;
+
+    await offlineCounterDb.pendingDrafts.add(record);
     await loadOfflineDrafts();
+    setSaveNotice(
+      billOverride
+        ? `Saved ${billOverride.billNumber} to Offline Queue (Dexie).`
+        : "Saved draft items & totals to Offline Queue (Dexie)."
+    );
+    setTimeout(() => setSaveNotice(null), 3500);
+  };
+
+  const handleOpenGenerateBill = () => {
+    const currentParsed = activeCart.parsed;
+    if (!currentParsed) return;
+    const customer =
+      activeCart.selectedCustomer ??
+      (currentParsed.candidateCustomers.length === 1 ? currentParsed.candidateCustomers[0] : null);
+    const bill = buildGeneratedBill({
+      preset,
+      ...(customer ? { customerName: customer.displayName, previousBalancePaise: customer.previousBalancePaise } : {}),
+      subtotalPaise: currentParsed.subtotalPaise,
+      taxPaise: currentParsed.taxPaise,
+      englishSummary: currentParsed.englishSummary,
+      draft: currentParsed.draft
+    });
+    setPreviewIsFromOffline(false);
+    setPreviewBill(bill);
+  };
+
+  const handleInspectOfflineBill = (row: OfflinePendingDraft) => {
+    if (!row.draft) return;
+    const bill = buildGeneratedBill({
+      ...(row.billNumber ? { billNumber: row.billNumber } : {}),
+      issuedAtIso: row.createdAt,
+      preset: row.preset ?? "kirana",
+      ...(row.customerName ? { customerName: row.customerName } : {}),
+      previousBalancePaise: row.previousBalancePaise ?? 0,
+      subtotalPaise: row.subtotalPaise ?? 0,
+      taxPaise: row.taxPaise ?? 0,
+      englishSummary: row.englishSummary ?? row.rawTranscript,
+      draft: row.draft
+    });
+    setPreviewIsFromOffline(true);
+    setPreviewBill(bill);
+  };
+
+  const handleLoadOfflineIntoCounter = (row: OfflinePendingDraft) => {
+    if (row.preset) {
+      setPreset(row.preset);
+    }
+    if (row.draft) {
+      const localResult = parseSandboxUtterance(row.rawTranscript, row.preset ?? preset);
+      updateActiveCart((prev) => ({
+        ...prev,
+        transcript: row.rawTranscript,
+        parsed: {
+          ...localResult,
+          draft: row.draft ?? localResult.draft,
+          subtotalPaise: row.subtotalPaise ?? localResult.subtotalPaise,
+          taxPaise: row.taxPaise ?? localResult.taxPaise,
+          englishSummary: row.englishSummary ?? localResult.englishSummary
+        },
+        selectedCustomer:
+          localResult.candidateCustomers.find((c) => c.displayName === row.customerName) ?? null,
+        source: "browser"
+      }));
+    } else {
+      void runParse(row.rawTranscript, row.preset ?? preset);
+    }
+    setActiveTab("counter");
   };
 
   const handleGenerateQr = async () => {
@@ -374,7 +470,7 @@ export function CounterBench() {
         </div>
       </header>
 
-      <Tabs defaultValue="counter" className="w-full">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "counter" | "offline" | "catalog")} className="w-full">
         <TabsList>
           <TabsTrigger value="counter">{localeCfg.ui.counterTab}</TabsTrigger>
           <TabsTrigger value="offline">
@@ -585,6 +681,13 @@ export function CounterBench() {
               ) : null}
 
               <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  onClick={handleOpenGenerateBill}
+                  disabled={parsed.draft.items.length === 0 && parsed.subtotalPaise === 0}
+                >
+                  <FileText className="h-4 w-4" /> Generate Bill
+                </Button>
                 <Button type="button" variant="secondary" onClick={() => void handleSaveOfflineDraft()}>
                   <Database className="h-4 w-4" /> {localeCfg.ui.saveOfflineBtn}
                 </Button>
@@ -607,6 +710,11 @@ export function CounterBench() {
                   </DialogContent>
                 </Dialog>
               </div>
+              {saveNotice ? (
+                <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+                  {saveNotice}
+                </p>
+              ) : null}
             </section>
           ) : null}
         </TabsContent>
@@ -614,7 +722,7 @@ export function CounterBench() {
         <TabsContent value="offline" className="space-y-3">
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-slate-900">IndexedDB Offline Drafts (Dexie.js)</h2>
+              <h2 className="font-semibold text-slate-900">IndexedDB Offline Saved Bills &amp; Drafts (Dexie.js)</h2>
               <Button
                 variant="outline"
                 size="sm"
@@ -628,21 +736,120 @@ export function CounterBench() {
             </div>
             {offlineDrafts.length === 0 ? (
               <p className="mt-3 text-sm text-slate-500">
-                No offline drafts saved yet. Click Save to Offline Queue on the Counter tab to test persistence across refreshes.
+                No offline drafts saved yet. Click Save to Offline Queue or Generate Bill on the Counter tab to inspect saved items here.
               </p>
             ) : (
-              <ul className="mt-3 divide-y divide-slate-100">
+              <div className="mt-4 space-y-3">
                 {offlineDrafts.map((row) => (
-                  <li key={row.id} className="flex items-center justify-between py-2 text-sm">
-                    <div>
-                      <p className="font-medium text-slate-900">{row.rawTranscript}</p>
-                      <p className="text-xs text-slate-500">
-                        Key: {row.idempotencyKey.slice(0, 8)}... · {row.createdAt}
-                      </p>
+                  <div key={row.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-md bg-slate-900 px-2 py-0.5 text-xs font-semibold text-white">
+                            {row.billNumber ?? `Draft #${row.id}`}
+                          </span>
+                          <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                            Pending Sync
+                          </span>
+                          {row.customerName ? (
+                            <span className="text-xs font-semibold text-slate-800">
+                              Customer: {row.customerName}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-sm font-medium text-slate-900">{row.rawTranscript}</p>
+                        {row.englishSummary ? (
+                          <p className="text-xs text-slate-600">{row.englishSummary}</p>
+                        ) : null}
+                      </div>
+                      <span className="text-xs text-slate-500">
+                        {new Date(row.createdAt).toLocaleString("en-IN")}
+                      </span>
                     </div>
-                  </li>
+
+                    {row.draft && row.draft.items.length > 0 ? (
+                      <div className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+                        {row.draft.items.map((item) => (
+                          <div
+                            key={`${row.id}-${item.skuId}-${item.quantityBase}`}
+                            className="flex items-center justify-between px-3 py-1.5 text-xs"
+                          >
+                            <span>
+                              <strong className="text-slate-900">{item.canonicalName}</strong>{" "}
+                              <span className="text-slate-500">
+                                ({item.quantityBase}{" "}
+                                {item.unitLabel === "kg" || item.unitLabel === "g" ? "g" : item.unitLabel} @ ₹
+                                {formatPaiseAsRupees(item.unitPricePaise)})
+                              </span>
+                            </span>
+                            <span className="font-semibold text-slate-900">
+                              ₹{formatPaiseAsRupees(item.lineTotalPaise)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {row.draft ? (
+                      <div className="flex flex-wrap gap-4 text-xs text-slate-700">
+                        <span>
+                          <strong>Total:</strong> ₹{formatPaiseAsRupees(row.subtotalPaise ?? 0)}
+                        </span>
+                        <span>
+                          <strong>GST:</strong> ₹{formatPaiseAsRupees(row.taxPaise ?? 0)}
+                        </span>
+                        <span className="text-emerald-700">
+                          <strong>Paid:</strong> ₹
+                          {formatPaiseAsRupees(
+                            row.draft.paymentSplit.cashPaise + row.draft.paymentSplit.upiPaise
+                          )}
+                        </span>
+                        <span className="text-amber-700">
+                          <strong>Udhaar:</strong> ₹{formatPaiseAsRupees(row.draft.paymentSplit.udhaarPaise)}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500">
+                        Legacy transcript-only entry (Key: {row.idempotencyKey.slice(0, 8)}...).
+                      </p>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                      {row.draft ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleInspectOfflineBill(row)}
+                        >
+                          <FileText className="h-3.5 w-3.5" /> View Bill
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleLoadOfflineIntoCounter(row)}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" /> Load to Counter
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          if (row.id !== undefined) {
+                            await offlineCounterDb.pendingDrafts.delete(row.id);
+                            await loadOfflineDrafts();
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Delete
+                      </Button>
+                    </div>
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </div>
         </TabsContent>
@@ -680,6 +887,19 @@ export function CounterBench() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <BillPreviewDialog
+        bill={previewBill}
+        onClose={() => setPreviewBill(null)}
+        {...(!previewIsFromOffline
+          ? {
+              onSaveOffline: async (bill) => {
+                await handleSaveOfflineDraft(bill);
+                setPreviewBill(null);
+              }
+            }
+          : {})}
+      />
     </main>
   );
 }
