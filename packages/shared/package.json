@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "fuse.js": "^7.5.0",
     "zod": "^4.6.7"
   }
 }

@@ -44,3 +44,9 @@ export const TransactionDraftSchema = z.object({
   ambiguousFields: z.array(z.string()).default([])
 });
 export type TransactionDraft = z.infer<typeof TransactionDraftSchema>;
+
+export const SandboxParseRequestSchema = z.object({
+  transcript: z.string().min(1, "Transcript is required"),
+  preset: StorePresetSchema.default("kirana")
+});
+export type SandboxParseRequest = z.infer<typeof SandboxParseRequestSchema>;
