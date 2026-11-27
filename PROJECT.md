@@ -35,6 +35,7 @@ Voice-first multilingual bookkeeping, *khata* ledger, and inventory copilot for 
 * Docker Compose runtime execution not verified on this Windows host yet (Docker Desktop not installed locally)
 
 ## Recent Changes
+* **2026-11-27:** Tightened `Fuse.js` matcher (`threshold: 0.28`, exact alias priority) to prevent false matches (`chana dal` -> `Basmati Rice`), added `Chana Dal`/`Moong Dal`/`Cooking Oil`/`Tea`/`Potato`, fixed walk-in cash default, added Gujarati `khataman` recognition, and guarded client hydration against browser-extension DOM attributes (`bis_skin_checked`).
 * **2026-11-27:** Added 9-script Unicode Indic transliterator (`packages/shared/src/indic.ts`), inline spoken unit-price overrides, 10-language UI translations (`hi`, `gu`, `mr`, `pa`, `ta`, `te`, `ml`, `bn`, `kn`, `en`), and English translation preview on Draft Cards.
 * **2026-11-27:** Added `start.bat` and `stop.bat` launchers in project root (`PROJECT.md`, `README.md`, `plan/WORKFLOW.md` updated).
 * **2026-11-27:** Added open-source developer & human test bench tooling (`@fastify/swagger` + `@scalar/fastify-api-reference` at `/reference`, `fuse.js` Hinglish sandbox matcher, `shadcn/ui` Radix Tabs/Dialog primitives, browser Web Speech + RMS mic meter, dynamic UPI QR, and `Dexie.js` offline queue inspection UI).

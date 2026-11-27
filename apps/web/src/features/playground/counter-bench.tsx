@@ -11,7 +11,9 @@ import {
 } from "@voicekhata/shared";
 import { AlertTriangle, CheckCircle2, Database, ExternalLink, Languages, Mic, MicOff, Plus, QrCode, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+
+const emptySubscribe = () => () => {};
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -54,6 +56,11 @@ interface HoldCartState {
 }
 
 export function CounterBench() {
+  const isHydrated = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
   const t = useTranslations("app");
   const [locale, setLocale] = useState<AppLocale>("hi");
   const localeCfg = getLocaleConfig(locale);
@@ -303,8 +310,17 @@ export function CounterBench() {
       (parsed.draft.ambiguousFields.includes("customerId") && resolvedCustomer === null));
   const presetCatalog = getCatalogForPreset(preset);
 
+  if (!isHydrated) {
+    return (
+      <main className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8" suppressHydrationWarning>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">{t("title")}</h1>
+        <p className="text-sm text-slate-600">{localeCfg.ui.subtitle}</p>
+      </main>
+    );
+  }
+
   return (
-    <main className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8">
+    <main className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8" suppressHydrationWarning>
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">{t("title")}</h1>
